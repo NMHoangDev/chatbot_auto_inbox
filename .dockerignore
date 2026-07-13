@@ -1,0 +1,21 @@
+# Git đã loại trừ phần lớn rồi — file này chỉ thêm artifact tạm mà
+# `docker build` không cần, giúp cache layer nhanh hơn và image nhỏ hơn.
+
+node_modules/
+.next/
+*.log
+*.tsbuildinfo
+.env.local
+
+# services/zalo-bridge có node_modules + data riêng, không cần bake vào
+# image frontend (frontend Dockerfile chỉ COPY . . ở root context).
+services/zalo-bridge/node_modules/
+services/zalo-bridge/data/sessions/*.json
+services/zalo-bridge/data/accounts.json
+services/zalo-bridge/zca-js/node_modules/
+
+.git/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

@@ -1,0 +1,65 @@
+name: Deploy App (Production)
+
+# Deploy len may ao/domain that - CHI chay khi bam nut "Run workflow" thu cong
+# trong tab Actions tren GitHub, KHONG tu dong chay khi push/merge vao main.
+#
+# ============================================================================
+# TODO TRUOC KHI DUNG WORKFLOW NAY (dien sau khi co domain + may ao that):
+#   1. `runs-on` ben duoi dang de [self-hosted, app] - doi thanh label runner
+#      thuc te ban dang ky tren may ao (Settings > Actions > Runners), hoac
+#      giu nguyen neu ban se gan dung 2 label nay.
+#   2. `working-directory` dang la placeholder - doi thanh duong dan code
+#      thuc te tren may ao (vd /home/<user>/apps/zalo-forward-demo).
+#   3. Doi `https://YOUR_DOMAIN` o buoc cuoi thanh domain that.
+#   4. Dam bao file `.env` da co san TREN MAY AO truoc (workflow nay KHONG
+#      tao/ghi de .env - chi doc de kiem tra ton tai), dien du secret Supabase
+#      + BRIDGE_API_KEY + ZALO_BRIDGE_PUBLIC_URL/ALLOWED_ORIGINS theo domain
+#      that (xem .env.example + README.Docker.md).
+# ============================================================================
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Nhanh/commit muon deploy (de trong = dung main moi nhat)"
+        required: false
+        default: "main"
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, app] # TODO: doi label runner thuc te
+    defaults:
+      run:
+        working-directory: /path/to/zalo-forward-demo # TODO: doi duong dan thuc te tren may ao
+    steps:
+      - name: Kiem tra .env da ton tai (khong duoc CI tao/ghi de file nay)
+        run: |
+          if [ ! -f .env ]; then
+            echo "Khong tim thay .env tai $(pwd)/.env - copy tu .env.example va dien secret truoc khi deploy." >&2
+            exit 1
+          fi
+
+      - name: Pull code theo ref duoc chon
+        run: |
+          git fetch origin
+          git checkout "${{ github.event.inputs.ref }}"
+          git pull origin "${{ github.event.inputs.ref }}" || true
+
+      - name: Build frontend + zalo-bridge
+        run: docker compose build frontend zalo-bridge
+
+      - name: Ap dung container moi
+        run: |
+          docker compose up -d frontend zalo-bridge
+          sleep 5
+          docker compose restart router
+          docker image prune -f
+
+      - name: Kiem tra healthcheck (qua router noi bo)
+        run: |
+          sleep 5
+          curl -sf -o /dev/null http://localhost:8080/ || (echo "Frontend khong phan hoi qua router" && exit 1)
+          curl -sf -o /dev/null http://localhost:8080/zalo-bridge/health || echo "Luu y: zalo-bridge/health khong phan hoi 200 - kiem tra lai container zalo-bridge"
+
+      - name: Kiem tra tu ben ngoai (qua domain thuc)
+        run: |
+          curl -sf -o /dev/null https://YOUR_DOMAIN/ || echo "Luu y: khong goi duoc https://YOUR_DOMAIN tu runner - kiem tra Cloudflare/DNS/SSL rieng, khong tinh la deploy loi neu check noi bo o buoc truoc da qua"

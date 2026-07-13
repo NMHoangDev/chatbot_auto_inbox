@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=420, initial-scale=1.0">
+  <title>Zalo QR Login</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-row">
+        <img src="icons/icon48.png" alt="Logo" class="logo-icon">
+        <div>
+          <h1 class="title">Zalo QR Connector</h1>
+          <p class="subtitle">Đồng bộ session Zalo ↔ Backend</p>
+        </div>
+      </div>
+      <div class="status-pill" id="statusPill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Chưa kết nối</span>
+      </div>
+    </header>
+
+    <!-- Settings Section -->
+    <section class="section settings-section" id="settingsSection">
+      <div class="section-header" id="settingsToggle">
+        <span class="section-icon">⚙️</span>
+        <span>Cấu hình Backend</span>
+        <span class="chevron" id="settingsChevron">▾</span>
+      </div>
+      <div class="settings-body" id="settingsBody">
+        <div class="field">
+          <label for="backendUrl">Backend URL</label>
+          <input type="url" id="backendUrl" value="https://timetech.markeeai.com"
+            placeholder="https://timetech.markeeai.com">
+        </div>
+        <div class="field">
+          <label for="apiKey">API Key</label>
+          <input type="password" id="apiKey" placeholder="Nhập API Key backend">
+        </div>
+        <div class="field">
+          <label for="userId">Zalo Account ID</label>
+          <input type="text" id="userId" value="default" placeholder="agent-zalo-1">
+        </div>
+        <button class="btn btn-sm btn-outline" id="saveSettingsBtn">
+          💾 Lưu cấu hình
+        </button>
+      </div>
+    </section>
+
+    <!-- QR Display Section
+    <section class="section qr-section" id="qrSection" style="display:none;">
+      <div class="qr-container">
+        <div class="qr-frame" id="qrFrame">
+          <img id="qrImage" alt="QR Code" style="display:none;">
+          <div class="qr-placeholder" id="qrPlaceholder">
+            <div class="spinner"></div>
+            <p>Đang chờ QR code...</p>
+          </div>
+        </div>
+      </div>
+      <p class="qr-hint">
+        📱 Mở <strong>Zalo</strong> trên điện thoại → Quét mã QR này
+      </p>
+    </section>
+    -->
+
+    <!-- Actions -->
+    <section class="section actions-section">
+      <button class="btn btn-primary" id="openZaloBtn">
+        🔗 Mở tab Zalo đăng nhập
+      </button>
+      <button class="btn btn-accent" id="manualSyncBtn">
+        🔄 Đồng bộ session thủ công
+      </button>
+      <button class="btn btn-outline btn-sm" id="resetBtn" style="display:none;">
+        🗑️ Reset
+      </button>
+    </section>
+
+    <!-- Message Log -->
+    <section class="section log-section" id="logSection" style="display:none;">
+      <div class="section-header">
+        <span class="section-icon">📋</span>
+        <span>Nhật ký</span>
+      </div>
+      <div class="log-body" id="logBody"></div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>Zalo QR Login Extension v1.0</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

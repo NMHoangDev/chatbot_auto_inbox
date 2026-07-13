@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cai tien ich Markee Zalo</title>
+  <style>
+    :root {
+      --blue: #0068ff;
+      --blue-dark: #0052cc;
+      --bg: #f3f6fb;
+      --card: #fff;
+      --text: #111827;
+      --muted: #64748b;
+      --border: #dbe4f0;
+      --warning: #fff7ed;
+      --warning-border: #fed7aa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .header {
+      height: 72px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 28px;
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 8px 24px rgba(0, 104, 255, 0.2);
+    }
+    .logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      color: var(--blue);
+      font-size: 24px;
+      font-weight: 900;
+    }
+    .header h1 { margin: 0; font-size: 20px; }
+    .header p { margin: 2px 0 0; color: rgba(255,255,255,.78); }
+    .wrap {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 40px 18px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+      padding: 30px;
+    }
+    .eyebrow {
+      color: var(--blue);
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: clamp(26px, 4vw, 36px);
+      line-height: 1.15;
+    }
+    .lead {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.65;
+    }
+    .download {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 22px;
+      border-radius: 12px;
+      background: var(--blue);
+      color: #fff;
+      font-weight: 800;
+      text-decoration: none;
+      box-shadow: 0 12px 24px rgba(0, 104, 255, .24);
+    }
+    .download:hover { background: var(--blue-dark); }
+    .steps {
+      margin-top: 28px;
+      display: grid;
+      gap: 14px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 38px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #fbfdff;
+    }
+    .num {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: #e8f0ff;
+      color: var(--blue);
+      font-weight: 900;
+    }
+    .step h3 { margin: 0 0 5px; font-size: 16px; }
+    .step p { margin: 0; color: var(--muted); line-height: 1.55; }
+    .guide-image {
+      margin-top: 14px;
+      width: 100%;
+      max-width: 560px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+      background: #111827;
+    }
+    code {
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #eef2f7;
+      color: #0f172a;
+      font-size: 13px;
+    }
+    .note {
+      margin-top: 22px;
+      padding: 16px;
+      border-radius: 14px;
+      background: var(--warning);
+      border: 1px solid var(--warning-border);
+      color: #92400e;
+      line-height: 1.55;
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">Z</div>
+    <div>
+      <h1>Markee Zalo Extension</h1>
+      <p>Cai tien ich de ket noi Zalo ca nhan voi Markee Chat</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="eyebrow">Cai dat mot lan tren trinh duyet</div>
+      <h2>Tai tien ich Markee Zalo</h2>
+      <p class="lead">
+        Tien ich nay chi dung de mo Zalo Web, lay phien dang nhap cua dung tai khoan Zalo ca nhan
+        va gui ve Markee Chat. Sau khi ket noi xong, nguoi dung thao tac trong Markee Chat.
+      </p>
+
+      <a class="download" href="{{DOWNLOAD_URL}}">Tai file cai dat ZIP</a>
+
+      <div class="steps">
+        <div class="step">
+          <div class="num">1</div>
+          <div>
+            <h3>Tai va giai nen ZIP</h3>
+            <p>Tai file ZIP o nut tren, sau do giai nen ra mot thu muc co ten de nho, vi du <code>markee-zalo-extension</code>.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <div>
+            <h3>Mo trang tien ich Chrome</h3>
+            <p>Mo Chrome, vao <code>chrome://extensions</code>, bat cong tac <strong>Developer mode</strong> o goc tren ben phai.</p>
+            <img class="guide-image" src="{{BRIDGE_URL}}/assets/chrome-developer-mode.svg" alt="Bat Developer mode trong Chrome Extensions">
+          </div>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <div>
+            <h3>Chon Load unpacked</h3>
+            <p>Bam <strong>Load unpacked</strong> va chon dung thu muc da giai nen o buoc 1.</p>
+            <img class="guide-image" src="{{BRIDGE_URL}}/assets/chrome-load-unpacked.svg" alt="Bam Load unpacked va chon thu muc da giai nen">
+          </div>
+        </div>
+        <div class="step">
+          <div class="num">4</div>
+          <div>
+            <h3>Quay lai Markee Chat</h3>
+            <p>Tai lai trang ket noi Zalo ca nhan trong Markee Chat, roi bam <strong>Dang nhap tai khoan Zalo</strong>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        Ban cai dat noi bo nay dung cho giai doan test. De khach hang khong can bat Developer mode,
+        nen publish tien ich len Chrome Web Store va cau hinh Markee tro den link cai dat chinh thuc.
+      </div>
+    </section>
+  </main>
+</body>
+</html>

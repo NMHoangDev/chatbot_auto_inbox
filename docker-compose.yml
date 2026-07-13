@@ -1,0 +1,106 @@
+# =============================================================================
+# Zalo Forward Demo — full-stack Docker Compose
+#
+#   router        : cổng 8080 (HTTP) — đổi 80/443 khi có domain + SSL.
+#   frontend      : Next.js (port 3000 nội bộ).
+#   zalo-bridge   : Express Node 22 (port 3001 nội bộ).
+#
+# Trước khi chạy `docker compose up --build -d`:
+#   1. Copy `.env.example` ở root → `.env`
+#   2. Điền: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+#      SUPABASE_SERVICE_ROLE_KEY, BRIDGE_API_KEY,
+#      ZALO_BRIDGE_PUBLIC_URL=http://YOUR_DOMAIN/zalo-bridge
+#   3. Trỏ domain về IP máy ảo, reverse-proxy domain → host:${ROUTER_HTTP_PORT}
+#      (mặc định 8080; đổi thẳng port này hoặc đặt Caddy/Cloudflare trước để
+#      cấp TLS — xem README.Docker.md mục 5).
+# =============================================================================
+name: zalo-forward-demo
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+      args:
+        # NEXT_PUBLIC_* phải truyền lúc BUILD (bake vào JS bundle gửi trình
+        # duyệt) — xem giải thích trong frontend.Dockerfile. Đọc từ .env
+        # cùng thư mục (docker compose tự load để substitute biến ở đây).
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_ZALO_ACCOUNT_ID: ${NEXT_PUBLIC_ZALO_ACCOUNT_ID:-shop-owner}
+        # URL bridge nhìn từ TRÌNH DUYỆT (public, qua router/domain) — khác
+        # với ZALO_BRIDGE_URL nội bộ container-to-container bên dưới.
+        NEXT_PUBLIC_ZALO_BRIDGE_URL: ${ZALO_BRIDGE_PUBLIC_URL:-http://localhost:8080/zalo-bridge}
+    image: zalo-forward-frontend:latest
+    container_name: zalo-forward-frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Server-side (API routes) gọi thẳng bridge qua mạng nội bộ docker —
+      # không qua router (giảm hop, không phụ thuộc domain public).
+      ZALO_BRIDGE_URL: http://zalo-bridge:3001
+      PORT: "3000"
+      HOST: "0.0.0.0"
+    expose:
+      - "3000"
+    depends_on:
+      zalo-bridge:
+        condition: service_healthy
+    networks:
+      zalo-forward-net:
+        aliases:
+          - frontend
+
+  zalo-bridge:
+    build:
+      context: .
+      dockerfile: zalo-bridge.Dockerfile
+    image: zalo-forward-zalo-bridge:latest
+    container_name: zalo-forward-zalo-bridge
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "3001"
+      HOST: "0.0.0.0"
+      # Public URL bridge nhìn từ browser (link extension-download/config tự
+      # render đúng URL) — set tường minh, đừng để suy ra từ host header khi
+      # đứng sau reverse proxy domain thật.
+      ZALO_BRIDGE_PUBLIC_URL: ${ZALO_BRIDGE_PUBLIC_URL:-http://localhost:8080/zalo-bridge}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080}
+    expose:
+      - "3001"
+    volumes:
+      # Session zca-js phải lưu ra ngoài container để không mất khi rebuild.
+      - zalo-sessions:/app/data
+    networks:
+      zalo-forward-net:
+        aliases:
+          - zalo-bridge
+
+  router:
+    image: nginx:1.27-alpine
+    container_name: zalo-forward-router
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_started
+      zalo-bridge:
+        condition: service_healthy
+    ports:
+      # Đổi "8080:8080" thành "80:8080"/"443:8080" tuỳ domain thật.
+      - "${ROUTER_HTTP_PORT:-8080}:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      zalo-forward-net:
+        aliases:
+          - router
+
+volumes:
+  zalo-sessions:
+
+networks:
+  zalo-forward-net:
+    driver: bridge

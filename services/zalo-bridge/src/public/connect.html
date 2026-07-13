@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zalo Bridge – Kết nối tài khoản</title>
+<style>
+:root {
+  --blue: #0068ff;
+  --blue-dark: #0052cc;
+  --blue-light: #e8f0fe;
+  --green: #00b14f;
+  --red: #e53935;
+  --orange: #f59e0b;
+  --bg: #f0f2f5;
+  --card: #fff;
+  --text: #1c1e21;
+  --text-2: #65676b;
+  --border: #e4e6ea;
+  --shadow: 0 2px 12px rgba(0,0,0,.08);
+  --radius: 12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ── HEADER ── */
+header{background:var(--blue);padding:0 24px;height:60px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,104,255,.3)}
+.logo-badge{width:36px;height:36px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:var(--blue)}
+.logo-title{color:#fff;font-size:18px;font-weight:700;line-height:1.2}
+.logo-sub{color:rgba(255,255,255,.75);font-size:12px}
+header .spacer{flex:1}
+.header-badge{background:rgba(255,255,255,.2);color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600}
+
+/* ── LAYOUT ── */
+.container{max-width:800px;margin:0 auto;padding:24px 16px}
+
+/* ── STATUS BAR ── */
+.status-bar{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.status-item{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 16px;display:flex;align-items:center;gap:8px;font-size:13px;flex:1;min-width:160px;box-shadow:var(--shadow)}
+.dot{width:8px;height:8px;border-radius:50%;background:#d1d5db;flex-shrink:0}
+.dot.online{background:var(--green)}
+.dot.offline{background:var(--red)}
+.dot.checking{background:var(--orange);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── SESSIONS ── */
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.section-title{font-size:16px;font-weight:700}
+.btn-primary{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:600;cursor:pointer;transition:.15s}
+.btn-primary:hover{background:var(--blue-dark)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-ghost{background:transparent;color:var(--text-2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;transition:.15s}
+.btn-ghost:hover{background:var(--bg)}
+.btn-danger{background:#fff;color:var(--red);border:1px solid #fecaca;border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:.15s}
+.btn-danger:hover{background:#fef2f2}
+
+.sessions-grid{display:flex;flex-direction:column;gap:12px}
+.session-card{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:16px 20px;display:flex;align-items:center;gap:16px;box-shadow:var(--shadow)}
+.session-card.connected{border-color:#bbf7d0}
+.session-avatar{width:44px;height:44px;border-radius:50%;background:var(--blue-light);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.session-info{flex:1;min-width:0}
+.session-name{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.session-meta{display:flex;gap:16px;margin-top:4px;flex-wrap:wrap}
+.session-meta span{font-size:12px;color:var(--text-2)}
+.session-status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+.session-status.connected{color:var(--green)}
+.session-status.connecting{color:var(--orange)}
+.session-status.error{color:var(--red)}
+
+.empty-state{background:var(--card);border:2px dashed var(--border);border-radius:var(--radius);padding:48px 24px;text-align:center;color:var(--text-2)}
+.empty-icon{font-size:48px;margin-bottom:12px}
+.empty-title{font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px}
+.empty-sub{font-size:14px;line-height:1.6}
+
+/* ── MODAL ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:.2s;pointer-events:none}
+.overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--card);border-radius:var(--radius);width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,.2);transform:translateY(20px);transition:.2s}
+.overlay.open .modal{transform:translateY(0)}
+.modal-header{padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between}
+.modal-header h3{font-size:18px;font-weight:700}
+.btn-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-2);line-height:1;padding:4px}
+.modal-body{padding:20px 24px}
+.modal-footer{padding:0 24px 20px;display:flex;gap:10px;justify-content:flex-end}
+
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:6px}
+.form-group input{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;outline:none;transition:.15s}
+.form-group input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,104,255,.12)}
+.form-group .hint{font-size:12px;color:var(--text-2);margin-top:4px}
+
+/* ── PROGRESS/STATUS ── */
+.notice{border-radius:8px;padding:12px 14px;font-size:13px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px}
+.notice.warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+.notice.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+.notice.success{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+.notice.info{background:var(--blue-light);border:1px solid #93c5fd;color:#1e40af}
+
+.progress-steps{margin-bottom:16px}
+.step{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.step:last-child{border-bottom:none}
+.step-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;font-weight:700}
+.step-icon.done{background:#dcfce7;color:var(--green)}
+.step-icon.active{background:#dbeafe;color:var(--blue);animation:pulse 1s infinite}
+.step-icon.pending{background:#f3f4f6;color:#9ca3af}
+.step-icon.err{background:#fee2e2;color:var(--red)}
+.step-label{flex:1}
+
+/* ── EXT WARNING ── */
+.ext-guide{background:var(--blue-light);border:1px solid #93c5fd;border-radius:8px;padding:14px;margin-bottom:12px;font-size:13px;color:#1e40af}
+.ext-guide strong{display:block;margin-bottom:6px;font-size:14px}
+.ext-guide ol{padding-left:16px;line-height:2}
+
+/* ── SPINNER ── */
+.spinner{display:inline-block;width:16px;height:16px;border:2.5px solid #e5e7eb;border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── RESPONSIVE ── */
+@media(max-width:500px){
+  .session-card{flex-wrap:wrap}
+  .session-meta{gap:8px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-badge">Z</div>
+  <div>
+    <div class="logo-title">Zalo Bridge</div>
+    <div class="logo-sub">Kết nối Zalo cá nhân với Chatwoot</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="header-badge" id="bridge-version">Port {{BRIDGE_PORT}}</div>
+</header>
+
+<div class="container">
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <div class="status-item">
+      <div class="dot checking" id="ext-dot"></div>
+      <span id="ext-label">Extension: Đang kiểm tra...</span>
+    </div>
+    <div class="status-item">
+      <div class="dot online"></div>
+      <span>Bridge: Hoạt động ✓</span>
+    </div>
+    <div class="status-item" style="cursor:pointer" onclick="loadSessions()">
+      <div class="dot online"></div>
+      <span id="sessions-count">Phiên: Đang tải...</span>
+    </div>
+  </div>
+
+  <!-- Sessions -->
+  <div class="section-header">
+    <div class="section-title">Tài khoản Zalo đã kết nối</div>
+    <button class="btn-primary" onclick="openModal()">+ Thêm tài khoản</button>
+  </div>
+  <div class="sessions-grid" id="sessions-grid">
+    <div class="empty-state">
+      <div class="spinner"></div>
+      <div style="margin-top:8px;font-size:14px">Đang tải...</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal overlay -->
+<div class="overlay" id="overlay" onclick="onOverlayClick(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Kết nối tài khoản Zalo</h3>
+      <button class="btn-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <!-- injected by JS -->
+    </div>
+    <div class="modal-footer" id="modal-footer">
+      <!-- injected by JS -->
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Constants injected by Express ────────────────────────────────────────────
+const BRIDGE_API_KEY = '{{BRIDGE_API_KEY}}';
+const BRIDGE_ORIGIN  = window.location.origin;  // http://localhost:3001
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let extAvailable = false;
+let pendingRequests = {};   // requestId → {resolve, reject, timer}
+let connectStep = 0;        // 0=idle 1=waiting-ext 2=opening-zalo 3=importing 4=done
+
+// ─── Extension postMessage helpers ────────────────────────────────────────────
+function sendToExt(type, data = {}, timeoutMs = 40000) {
+  return new Promise((resolve, reject) => {
+    const requestId = `bridge-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+    const timer = setTimeout(() => {
+      delete pendingRequests[requestId];
+      reject(new Error(`Timeout waiting for extension (${type})`));
+    }, timeoutMs);
+    pendingRequests[requestId] = { resolve, reject, timer };
+    window.postMessage({ __zaloExt: true, type, requestId, data }, '*');
+  });
+}
+
+window.addEventListener('message', (e) => {
+  if (e.source !== window) return;
+  const msg = e.data;
+  if (!msg || msg.__zaloExt !== true) return;
+
+  // Handle PONG (for PING or bridge-ready)
+  if (msg.type === 'PONG') {
+    if (msg.requestId && pendingRequests[msg.requestId]) {
+      const { resolve, timer } = pendingRequests[msg.requestId];
+      clearTimeout(timer);
+      delete pendingRequests[msg.requestId];
+      resolve({ installed: true });
+    }
+    if (!extAvailable) {
+      extAvailable = true;
+      setExtStatus(true);
+    }
+    return;
+  }
+
+  // Handle RESPONSE
+  if (msg.type === 'RESPONSE' && msg.requestId && pendingRequests[msg.requestId]) {
+    const { resolve, reject, timer } = pendingRequests[msg.requestId];
+    clearTimeout(timer);
+    delete pendingRequests[msg.requestId];
+    if (msg.success) resolve(msg.data);
+    else reject(new Error(msg.error || 'Extension error'));
+  }
+});
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+function apiHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (BRIDGE_API_KEY) h['x-api-key'] = BRIDGE_API_KEY;
+  return h;
+}
+
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(BRIDGE_ORIGIN + path, {
+    headers: apiHeaders(),
+    ...opts,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// ─── Extension detection ──────────────────────────────────────────────────────
+function setExtStatus(ok) {
+  const dot   = document.getElementById('ext-dot');
+  const label = document.getElementById('ext-label');
+  dot.className   = 'dot ' + (ok ? 'online' : 'offline');
+  label.textContent = ok
+    ? 'Extension: Đã cài ✓'
+    : 'Extension: Chưa cài — cần cài để kết nối bằng cookie';
+}
+
+async function detectExtension() {
+  // Wait a moment for page-bridge.js to inject
+  await new Promise(r => setTimeout(r, 600));
+
+  if (window.__zaloExtensionAvailable) {
+    extAvailable = true;
+    setExtStatus(true);
+    return;
+  }
+
+  try {
+    await sendToExt('PING', {}, 3000);
+    extAvailable = true;
+    setExtStatus(true);
+  } catch (_) {
+    extAvailable = false;
+    setExtStatus(false);
+  }
+}
+
+// ─── Sessions ─────────────────────────────────────────────────────────────────
+async function loadSessions() {
+  const grid = document.getElementById('sessions-grid');
+  const countEl = document.getElementById('sessions-count');
+  try {
+    const data = await apiFetch('/status/sessions');
+    const sessions = data.sessions || [];
+    countEl.textContent = `Phiên: ${sessions.length} đang hoạt động`;
+    renderSessions(sessions);
+  } catch (err) {
+    grid.innerHTML = `<div class="notice error">⚠️ Không tải được danh sách: ${escHtml(err.message)}</div>`;
+    countEl.textContent = 'Phiên: Lỗi';
+  }
+}
+
+function renderSessions(sessions) {
+  const grid = document.getElementById('sessions-grid');
+  if (!sessions.length) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">💬</div>
+        <div class="empty-title">Chưa kết nối tài khoản nào</div>
+        <div class="empty-sub">Nhấn "+ Thêm tài khoản" để kết nối Zalo cá nhân với Chatwoot.<br>Bạn cần cài <strong>extension-login-zalo</strong> để tự động lấy cookie.</div>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = sessions.map(s => {
+    const statusClass = s.status === 'connected' ? 'connected' : s.status === 'error' ? 'error' : 'connecting';
+    const statusIcon  = s.status === 'connected' ? '✅ Đã kết nối' : s.status === 'error' ? '❌ Lỗi' : '⏳ Đang kết nối';
+    return `
+    <div class="session-card ${s.status === 'connected' ? 'connected' : ''}">
+      <div class="session-avatar">👤</div>
+      <div class="session-info">
+        <div class="session-name">${escHtml(s.accountId)}</div>
+        <div class="session-meta">
+          ${s.zaloId ? `<span>Zalo ID: ${escHtml(s.zaloId)}</span>` : ''}
+          ${s.inboxId ? `<span>Inbox: #${escHtml(String(s.inboxId))}</span>` : '<span style="color:var(--orange)">⚠️ Chưa gán inbox</span>'}
+          <span class="session-status ${statusClass}">${statusIcon}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-shrink:0">
+        ${!s.inboxId ? `<button class="btn-ghost" onclick="openSetInbox('${escHtml(s.accountId)}')">Gán inbox</button>` : ''}
+        <button class="btn-danger" onclick="doLogout('${escHtml(s.accountId)}')">Đăng xuất</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Logout ───────────────────────────────────────────────────────────────────
+async function doLogout(accountId) {
+  if (!confirm(`Đăng xuất tài khoản "${accountId}"?`)) return;
+  try {
+    await apiFetch(`/auth/logout/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
+    await loadSessions();
+  } catch (err) {
+    alert('Lỗi đăng xuất: ' + err.message);
+  }
+}
+
+// ─── Assign inbox ─────────────────────────────────────────────────────────────
+function openSetInbox(accountId) {
+  document.getElementById('modal-title').textContent = 'Gán Inbox Chatwoot';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="notice info">Phiên <strong>${escHtml(accountId)}</strong> chưa được gán inbox.<br>Nhập Inbox ID để tin nhắn Zalo xuất hiện trong Chatwoot.</div>
+    <div class="form-group">
+      <label>Inbox ID (Chatwoot)</label>
+      <input id="set-inbox-id" type="number" placeholder="vd: 5" autofocus />
+      <div class="hint">Xem trong Chatwoot → Cài đặt → Hộp thư → chọn inbox → số trong URL</div>
+    </div>
+    <div id="set-inbox-msg"></div>`;
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Huỷ</button>
+    <button class="btn-primary" onclick="doSetInbox('${escHtml(accountId)}')">Lưu</button>`;
+  openModal();
+}
+
+async function doSetInbox(accountId) {
+  const inboxId = document.getElementById('set-inbox-id').value.trim();
+  if (!inboxId) return showModalMsg('Vui lòng nhập Inbox ID', 'error');
+  try {
+    await apiFetch('/auth/set-inbox', {
+      method: 'POST',
+      body: JSON.stringify({ accountId, inboxId: Number(inboxId) }),
+    });
+    closeModal();
+    await loadSessions();
+  } catch (err) {
+    showModalMsg('Lỗi: ' + err.message, 'error');
+  }
+}
+
+// ─── Add new session (main flow) ─────────────────────────────────────────────
+function openModal() {
+  renderConnectForm();
+  document.getElementById('overlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('overlay').classList.remove('open');
+  connectStep = 0;
+}
+
+function onOverlayClick(e) {
+  if (e.target === document.getElementById('overlay')) closeModal();
+}
+
+function renderConnectForm() {
+  document.getElementById('modal-title').textContent = 'Kết nối tài khoản Zalo';
+  document.getElementById('modal-body').innerHTML = `
+    ${!extAvailable ? `
+    <div class="ext-guide">
+      <strong>⚠️ Chưa phát hiện extension</strong>
+      Extension <em>extension-login-zalo</em> cần được cài vào Chrome để tự động lấy cookie Zalo.
+      <ol>
+        <li>Mở Chrome → <code>chrome://extensions</code></li>
+        <li>Bật "Chế độ dành cho nhà phát triển"</li>
+        <li>Nhấn "Tải tiện ích đã giải nén" → chọn thư mục <code>extension-login-zalo</code></li>
+        <li>Tải lại trang này</li>
+      </ol>
+    </div>` : ''}
+    <div class="form-group">
+      <label>Tên tài khoản (accountId)</label>
+      <input id="acc-name" placeholder="vd: zalo_cong_ty" value="zalo_${Date.now().toString(36)}" />
+      <div class="hint">Dùng để phân biệt nhiều tài khoản Zalo, không chứa dấu cách</div>
+    </div>
+    <div class="form-group">
+      <label>Inbox ID (Chatwoot)</label>
+      <input id="acc-inbox" type="number" placeholder="vd: 5" />
+      <div class="hint">Chatwoot → Cài đặt → Hộp thư → tạo inbox loại <strong>API</strong> → lấy ID trong URL</div>
+    </div>
+    <div id="connect-msg"></div>`;
+  document.getElementById('modal-footer').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Huỷ</button>
+    <button class="btn-primary" id="connect-btn" onclick="startConnect()">🔗 Kết nối Zalo</button>`;
+}
+
+function showModalMsg(html, type = 'info') {
+  const el = document.getElementById('connect-msg') || document.getElementById('set-inbox-msg');
+  if (el) el.innerHTML = `<div class="notice ${type}">${html}</div>`;
+}
+
+function showProgress(steps) {
+  // steps: [{label, state}] where state = 'done'|'active'|'pending'|'err'
+  const icons = { done: '✓', active: '…', pending: '○', err: '✗' };
+  return `<div class="progress-steps">` + steps.map(s =>
+    `<div class="step">
+      <div class="step-icon ${s.state}">${icons[s.state]}</div>
+      <div class="step-label">${s.label}</div>
+    </div>`
+  ).join('') + '</div>';
+}
+
+async function startConnect() {
+  const accountId = (document.getElementById('acc-name').value || '').trim().replace(/\s+/g, '_');
+  const inboxId   = (document.getElementById('acc-inbox').value || '').trim();
+
+  if (!accountId) return showModalMsg('Vui lòng nhập tên tài khoản', 'warn');
+  if (!inboxId)   return showModalMsg('Vui lòng nhập Inbox ID', 'warn');
+
+  if (!extAvailable) {
+    return showModalMsg(`
+      Extension chưa được cài hoặc chưa kích hoạt.<br>
+      Làm theo hướng dẫn phía trên để cài extension, sau đó thử lại.
+    `, 'warn');
+  }
+
+  // Disable button
+  const btn = document.getElementById('connect-btn');
+  if (btn) btn.disabled = true;
+
+  connectStep = 1;
+  updateProgress(connectStep);
+
+  try {
+    connectStep = 2;
+    updateProgress(connectStep);
+
+    const data = await sendToExt('IMPORT_ZALO_SESSION', {
+      account_id:  accountId,
+      owner_id:    inboxId,        // our convention: owner_id = inboxId
+      backend_url: BRIDGE_ORIGIN,  // http://localhost:3001
+      api_key:     BRIDGE_API_KEY,
+      login_timeout_ms: 60000,     // 60s to allow login
+    }, 75000); // 75s total timeout in page
+
+    connectStep = 3;
+    updateProgress(connectStep);
+
+    // data = { status, backend, cookies_count, keys }
+    const backend = data?.backend || {};
+    const zaloId  = backend.zaloId || '(chưa xác định)';
+
+    connectStep = 4;
+    document.getElementById('connect-msg').innerHTML = `
+      <div class="notice success">
+        ✅ <strong>Kết nối thành công!</strong><br>
+        Zalo ID: <code>${escHtml(zaloId)}</code> → Inbox #${escHtml(inboxId)}<br>
+        Tin nhắn Zalo sẽ xuất hiện trong Chatwoot.
+      </div>`;
+    document.getElementById('modal-footer').innerHTML = `
+      <button class="btn-primary" onclick="closeModal(); loadSessions()">Đóng</button>`;
+
+    // Refresh sessions in background
+    setTimeout(loadSessions, 1500);
+
+  } catch (err) {
+    connectStep = 0;
+    showModalMsg(`
+      <strong>❌ Kết nối thất bại</strong><br>
+      ${escHtml(err.message)}<br><br>
+      Thử lại: đảm bảo bạn đã đăng nhập Zalo Web trong cửa sổ vừa mở.
+    `, 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function updateProgress(step) {
+  const steps = [
+    { label: 'Kích hoạt extension', state: step > 1 ? 'done' : step === 1 ? 'active' : 'pending' },
+    { label: 'Mở Zalo Web – vui lòng đăng nhập nếu cần (tối đa 60 giây)', state: step > 2 ? 'done' : step === 2 ? 'active' : 'pending' },
+    { label: 'Nhập cookie vào Bridge & khởi động kết nối WebSocket', state: step > 3 ? 'done' : step === 3 ? 'active' : 'pending' },
+    { label: 'Hoàn tất', state: step >= 4 ? 'done' : 'pending' },
+  ];
+  const msgEl = document.getElementById('connect-msg');
+  if (msgEl) msgEl.innerHTML = showProgress(steps);
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+(async () => {
+  await detectExtension();
+  await loadSessions();
+
+  // Auto-refresh sessions every 30s
+  setInterval(loadSessions, 30000);
+})();
+</script>
+</body>
+</html>

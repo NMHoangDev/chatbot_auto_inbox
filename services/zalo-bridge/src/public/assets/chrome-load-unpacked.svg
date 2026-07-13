@@ -1,0 +1,25 @@
+<svg width="760" height="360" viewBox="0 0 760 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="760" height="360" rx="24" fill="#202124"/>
+  <rect x="24" y="24" width="712" height="312" rx="18" fill="#242528" stroke="#3c4043"/>
+  <circle cx="58" cy="58" r="18" fill="#F1F3F4"/>
+  <path d="M58 43a15 15 0 1 0 0 30 15 15 0 0 0 0-30Zm0 5.5a9.5 9.5 0 0 1 8.6 5.5H58a4 4 0 0 0-3.5 2L50.1 48.7a9.3 9.3 0 0 1 7.9-4.2Zm0 19a9.5 9.5 0 0 1-8.6-5.5H58a4 4 0 0 0 3.5-2l4.4 7.3a9.3 9.3 0 0 1-7.9 4.2Z" fill="#202124"/>
+  <text x="88" y="67" fill="#F1F3F4" font-family="Arial, sans-serif" font-size="26" font-weight="700">Extensions</text>
+  <rect x="40" y="102" width="164" height="54" rx="27" fill="#26374A" stroke="#3EA6FF" stroke-width="2"/>
+  <text x="71" y="136" fill="#D2E3FC" font-family="Arial, sans-serif" font-size="16" font-weight="700">Load unpacked</text>
+  <rect x="224" y="102" width="160" height="54" rx="27" fill="#202124" stroke="#3EA6FF" stroke-width="2"/>
+  <text x="259" y="136" fill="#D2E3FC" font-family="Arial, sans-serif" font-size="16" font-weight="700">Pack extension</text>
+  <rect x="604" y="42" width="112" height="36" rx="18" fill="#1A73E8"/>
+  <circle cx="698" cy="60" r="14" fill="#8AB4F8"/>
+  <text x="470" y="66" fill="#F1F3F4" font-family="Arial, sans-serif" font-size="17">Developer mode</text>
+  <rect x="48" y="188" width="340" height="120" rx="16" fill="#2B2C2F" stroke="#3C4043"/>
+  <rect x="70" y="212" width="52" height="52" rx="10" fill="#5F6368"/>
+  <text x="87" y="247" fill="#fff" font-family="Arial, sans-serif" font-size="22" font-weight="700">Z</text>
+  <text x="142" y="231" fill="#F1F3F4" font-family="Arial, sans-serif" font-size="17" font-weight="700">Markee Zalo Extension</text>
+  <text x="142" y="258" fill="#BDC1C6" font-family="Arial, sans-serif" font-size="15">Đã thêm vào Chrome</text>
+  <path d="M150 176c-16-28-18-54-6-86" stroke="#F87171" stroke-width="6" stroke-linecap="round" stroke-dasharray="12 12"/>
+  <path d="M138 90l29 32-42 4 13-36Z" fill="#F87171"/>
+  <rect x="414" y="206" width="284" height="84" rx="16" fill="#FFF7ED" stroke="#FED7AA" stroke-width="2"/>
+  <text x="438" y="236" fill="#9A3412" font-family="Arial, sans-serif" font-size="17" font-weight="700">Bước 3</text>
+  <text x="438" y="261" fill="#9A3412" font-family="Arial, sans-serif" font-size="16">Bấm Load unpacked</text>
+  <text x="438" y="282" fill="#9A3412" font-family="Arial, sans-serif" font-size="16">và chọn thư mục đã giải nén</text>
+</svg>

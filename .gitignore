@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.env.local
+.env
+services/zalo-bridge/node_modules/
+services/zalo-bridge/data/sessions/*.json
+services/zalo-bridge/data/accounts.json
+services/zalo-bridge/*.log
+services/zalo-bridge/zca-js/node_modules/
+tsconfig.tsbuildinfo
