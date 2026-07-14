@@ -1454,10 +1454,15 @@ if (type === "new_message") {
         return raw;
       })();
 
-      const accountId =
-        (typeof process !== "undefined" &&
-          process.env.NEXT_PUBLIC_ZALO_ACCOUNT_ID) ||
-        accountIdRef.current;
+      // BUG (2026-07-14): trước đây ưu tiên NEXT_PUBLIC_ZALO_ACCOUNT_ID (biến môi
+      // trường bake lúc BUILD, luôn = "shop-owner" mặc định) — khiến đăng nhập qua
+      // extension LUÔN ghi session vào "shop-owner" bất kể đang chọn account nào
+      // trên ZaloAccountSwitcher (vd "customer"). Toast báo "thành công" là ĐÚNG
+      // (login thật sự thành công) — nhưng thành công dưới account_id SAI, nên
+      // account đang chọn trên UI vẫn báo "not logged in" khi sync/gửi tin. Mọi
+      // chỗ khác trong hook này (conversations/messages/send/broadcast/logout...)
+      // đều dùng accountIdRef.current — đây phải là nguồn sự thật duy nhất.
+      const accountId = accountIdRef.current || process.env.NEXT_PUBLIC_ZALO_ACCOUNT_ID || "shop-owner";
 
       // Extension tự mở Zalo tab (nếu cần) → extract cookie → POST về bridge.
       const result = await ext.importSession({
