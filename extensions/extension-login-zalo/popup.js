@@ -37,7 +37,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     "apiKey",
     "userId",
   ]);
-  if (stored.backendUrl) backendUrlInput.value = stored.backendUrl;
+  // Domain của project markee KHÁC từng bị lưu nhầm (dùng chung 1 bản
+  // extension để test nhiều project trên cùng máy) — rewrite ngay khi hiển
+  // thị, không đợi background.js migrateLegacyBackendUrl() (chạy async lúc
+  // service worker khởi động, có thể chưa kịp xong khi popup vừa mở).
+  const OTHER_PROJECT_BACKEND_RE = /(^|\/\/|@)(mabuu|timetech|seeding)\.markeeai\.com/i;
+  const THIS_PROJECT_BACKEND_URL = "https://chatbot-inbox.markeeai.com/zalo-bridge";
+  let storedBackendUrl = stored.backendUrl;
+  if (storedBackendUrl && OTHER_PROJECT_BACKEND_RE.test(storedBackendUrl)) {
+    storedBackendUrl = THIS_PROJECT_BACKEND_URL;
+    chrome.storage.local.set({ backendUrl: storedBackendUrl }).catch(() => {});
+  }
+  if (storedBackendUrl) backendUrlInput.value = storedBackendUrl;
   if (stored.apiKey) apiKeyInput.value = stored.apiKey;
   if (stored.userId) userIdInput.value = stored.userId;
 

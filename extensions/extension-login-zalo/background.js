@@ -55,25 +55,34 @@ function logErr(...args) {
 }
 // ─── SW State Persistence ─────────────────────────────────────────
 
+// Domain của các project markee KHÁC (không phải project này) từng bị lưu
+// nhầm vào backendUrl — do dùng chung 1 bản extension cho nhiều project khi
+// test trên cùng máy. Bất kỳ giá trị nào khớp regex này đều phải rewrite về
+// đúng backend của project hiện tại (chatbot_auto_inbox / zalo-forward-demo).
+const OTHER_PROJECT_BACKEND_RE = /(^|\/\/|@)(mabuu|timetech|seeding)\.markeeai\.com/i;
+const THIS_PROJECT_BACKEND_URL = "https://chatbot-inbox.markeeai.com/zalo-bridge";
+
 /**
  * One-shot migration: tự sửa backendUrl đã lưu trong chrome.storage.local
- * khi user dùng bản extension cũ vẫn trỏ về mabuu.markeeai.com.
- * Migration này chạy 1 lần/session (đánh dấu bằng key `_mabuuToTimetechMigrated`)
- * để tránh chiếm tài nguyên; sau khi chuyển sang timetech thì tự tắt.
+ * khi user dùng chung extension với project markee khác (mabuu/timetech/
+ * seeding.markeeai.com) — rewrite về đúng backend của project này.
+ * Migration chạy 1 lần/session (đánh dấu bằng key `_backendUrlMigratedV2`)
+ * để tránh chiếm tài nguyên; đổi tên flag so với bản cũ (`_mabuuToTimetechMigrated`)
+ * để user đã từng migrate sang timetech (giờ CŨNG sai với project này) được
+ * quét lại đúng 1 lần.
  */
 async function migrateLegacyBackendUrl() {
   try {
-    const { _mabuuToTimetechMigrated, backendUrl } = await chrome.storage.local.get([
-      "_mabuuToTimetechMigrated",
+    const { _backendUrlMigratedV2, backendUrl } = await chrome.storage.local.get([
+      "_backendUrlMigratedV2",
       "backendUrl",
     ]);
-    if (_mabuuToTimetechMigrated) return;
-    const NEW = "https://timetech.markeeai.com";
-    if (backendUrl && /(^|\/\/|@)mabuu\.markeeai\.com/i.test(backendUrl)) {
-      log(`migrateLegacyBackendUrl: ${backendUrl} -> ${NEW}`);
-      await chrome.storage.local.set({ backendUrl: NEW });
+    if (_backendUrlMigratedV2) return;
+    if (backendUrl && OTHER_PROJECT_BACKEND_RE.test(backendUrl)) {
+      log(`migrateLegacyBackendUrl: ${backendUrl} -> ${THIS_PROJECT_BACKEND_URL}`);
+      await chrome.storage.local.set({ backendUrl: THIS_PROJECT_BACKEND_URL });
     }
-    await chrome.storage.local.set({ _mabuuToTimetechMigrated: true });
+    await chrome.storage.local.set({ _backendUrlMigratedV2: true });
   } catch (e) {
     logErr("migrateLegacyBackendUrl failed", e);
   }
@@ -115,14 +124,16 @@ async function getSettings() {
     "userId",
     "inboxId",
   ]);
-  // Defensive: nếu storage còn mabuu (do extension cũ / chưa migrate), rewrite ngay tại đây
-  let backendUrl = (result.backendUrl || "https://timetech.markeeai.com").replace(
+  // Defensive: nếu storage còn URL của project markee khác (do extension cũ /
+  // chưa migrate / dùng chung máy test nhiều project), rewrite ngay tại đây —
+  // không đợi migrateLegacyBackendUrl() (chạy async lúc SW khởi động) kịp xong.
+  let backendUrl = (result.backendUrl || THIS_PROJECT_BACKEND_URL).replace(
     /\/+$/,
     ""
   );
-  if (/(^|\/\/|@)mabuu\.markeeai\.com/i.test(backendUrl)) {
-    log(`getSettings: rewrite legacy backendUrl ${backendUrl} -> https://timetech.markeeai.com`);
-    backendUrl = "https://timetech.markeeai.com";
+  if (OTHER_PROJECT_BACKEND_RE.test(backendUrl)) {
+    log(`getSettings: rewrite legacy backendUrl ${backendUrl} -> ${THIS_PROJECT_BACKEND_URL}`);
+    backendUrl = THIS_PROJECT_BACKEND_URL;
     chrome.storage.local.set({ backendUrl }).catch(() => {});
   }
   return {
