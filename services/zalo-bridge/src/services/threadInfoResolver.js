@@ -23,6 +23,47 @@ const USER_FAILURE_TTL_MS = 10 * 60_000;
 const groupCache = new Map(); // key `${accountId}:${groupId}` -> { ts, payload, failed }
 const userCache = new Map(); // key `${accountId}:${userId}` -> { ts, payload, failed }
 
+// ── Fallback: getCMRecent() snapshot ────────────────────────────────────────
+// getGroupInfo()/getUserInfo() có giới hạn riêng (rate-limit, hoặc — với
+// getUserInfo — CHỈ trả hồ sơ cho người đã là bạn bè). getCMRecent() (danh
+// sách hội thoại gần đây, cùng nguồn dữ liệu route GET /conversations dùng
+// để hiển thị tên) không có giới hạn "phải là bạn bè" — đây là API mà Zalo
+// Web dùng để hiện tên thật cho CẢ tin nhắn làm quen (message request) từ
+// người lạ. Dùng làm lớp fallback thứ 2 trước khi đành chấp nhận "không
+// resolve được" — tránh phụ thuộc vào DOM-scrape qua extension (chưa được
+// cài đặt ở phía extension, xem ghi chú trong useZalo.ts requestExtensionDomSync).
+// Cache riêng, ngắn hạn — 1 lần fetch dùng chung cho MỌI groupId/userId cần
+// tra trong cùng cửa sổ thời gian, tránh gọi getCMRecent() lặp lại liên tục.
+const RECENT_SNAPSHOT_TTL_MS = 20_000;
+const recentSnapshotByAccount = new Map(); // accountId -> { ts, promise }
+
+async function getRecentSnapshot(api, accountId) {
+  const now = Date.now();
+  const cached = recentSnapshotByAccount.get(accountId);
+  if (cached && now - cached.ts < RECENT_SNAPSHOT_TTL_MS) return cached.promise;
+  const promise = api
+    .getCMRecent(200, 0)
+    .then((resp) => resp?.conversations || resp || [])
+    .catch((e) => {
+      logger.warn(`[${accountId}] getRecentSnapshot failed`, { err: e?.message });
+      return [];
+    });
+  recentSnapshotByAccount.set(accountId, { ts: now, promise });
+  return promise;
+}
+
+async function resolveViaRecentList(api, accountId, threadId) {
+  try {
+    const list = await getRecentSnapshot(api, accountId);
+    const match = list.find((c) => String(c.threadId ?? c.id ?? '') === String(threadId));
+    const name = match?.name || match?.displayName;
+    if (!match || !name) return null;
+    return { name, avatar: match.avatar || null };
+  } catch (_) {
+    return null;
+  }
+}
+
 /**
  * @param {object} api — zca-js API instance (session đang login)
  * @param {string} accountId
@@ -45,6 +86,21 @@ export async function resolveGroupInfo(api, accountId, groupId) {
     const response = await api.getGroupInfo(groupId);
     const groupData = response?.gridInfoMap?.[groupId] || null;
     if (!groupData || !groupData.name) {
+      const viaRecent = await resolveViaRecentList(api, accountId, groupId);
+      if (viaRecent) {
+        payload = {
+          ok: true,
+          thread_id: groupId,
+          thread_type: 'group',
+          group_name: viaRecent.name,
+          group_desc: null,
+          avatar_url: viaRecent.avatar,
+          member_count: 0,
+          group_type: 'group',
+        };
+        groupCache.set(key, { ts: now, payload, failed: false });
+        return payload;
+      }
       payload = { ok: false, error: 'group not found or empty name', thread_id: groupId };
       groupCache.set(key, { ts: now, payload, failed: true });
       return payload;
@@ -66,6 +122,21 @@ export async function resolveGroupInfo(api, accountId, groupId) {
       err: e?.message,
       code: e?.code,
     });
+    const viaRecent = await resolveViaRecentList(api, accountId, groupId);
+    if (viaRecent) {
+      payload = {
+        ok: true,
+        thread_id: groupId,
+        thread_type: 'group',
+        group_name: viaRecent.name,
+        group_desc: null,
+        avatar_url: viaRecent.avatar,
+        member_count: 0,
+        group_type: 'group',
+      };
+      groupCache.set(key, { ts: now, payload, failed: false });
+      return payload;
+    }
     payload = { ok: false, error: 'getGroupInfo failed', detail: e?.message, thread_id: groupId };
     groupCache.set(key, { ts: now, payload, failed: true });
     return payload;
@@ -77,8 +148,9 @@ export async function resolveGroupInfo(api, accountId, groupId) {
  * @param {string} accountId
  * @param {string} userId
  * @returns {Promise<{ok: boolean, user_name?: string, avatar_url?: string|null, ...} | null>}
- *   null khi không có `api`. `ok:false` khi user không phải bạn bè (ZCA giới hạn) —
- *   caller nên fallback DOM scrape (chỉ FE làm được) hoặc giữ tên cũ.
+ *   null khi không có `api`. `ok:false` chỉ khi CẢ getUserInfo (bạn bè) LẪN
+ *   getCMRecent (fallback, không giới hạn bạn bè) đều không tìm được tên —
+ *   caller nên giữ tên cũ trong case này.
  */
 export async function resolveUserInfo(api, accountId, userId) {
   const key = `${accountId}:${userId}`;
@@ -97,6 +169,22 @@ export async function resolveUserInfo(api, accountId, userId) {
     const profile = Object.values(profiles)[0] || null;
     const name = profile?.zaloName || profile?.displayName;
     if (!profile || !name) {
+      // getUserInfo (ZCA friend/getprofiles/v2) chỉ trả hồ sơ cho người ĐÃ LÀ
+      // bạn bè — người lạ nhắn tin (message request) luôn rơi vào đây. Thử
+      // getCMRecent(): API này KHÔNG có giới hạn "phải là bạn bè", cùng nguồn
+      // Zalo Web dùng để hiện tên thật cho tin nhắn làm quen.
+      const viaRecent = await resolveViaRecentList(api, accountId, userId);
+      if (viaRecent) {
+        payload = {
+          ok: true,
+          thread_id: userId,
+          thread_type: 'user',
+          user_name: viaRecent.name,
+          avatar_url: viaRecent.avatar,
+        };
+        userCache.set(key, { ts: now, payload, failed: false });
+        return payload;
+      }
       payload = { ok: false, error: 'user not found or empty name', thread_id: userId };
       userCache.set(key, { ts: now, payload, failed: true });
       return payload;
@@ -115,6 +203,18 @@ export async function resolveUserInfo(api, accountId, userId) {
       err: e?.message,
       code: e?.code,
     });
+    const viaRecent = await resolveViaRecentList(api, accountId, userId);
+    if (viaRecent) {
+      payload = {
+        ok: true,
+        thread_id: userId,
+        thread_type: 'user',
+        user_name: viaRecent.name,
+        avatar_url: viaRecent.avatar,
+      };
+      userCache.set(key, { ts: now, payload, failed: false });
+      return payload;
+    }
     payload = { ok: false, error: 'getUserInfo failed', detail: e?.message, thread_id: userId };
     userCache.set(key, { ts: now, payload, failed: true });
     return payload;

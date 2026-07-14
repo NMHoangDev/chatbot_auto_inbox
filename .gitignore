@@ -8,3 +8,4 @@ services/zalo-bridge/data/accounts.json
 services/zalo-bridge/*.log
 services/zalo-bridge/zca-js/node_modules/
 tsconfig.tsbuildinfo
+DEPLOY-NOTES.md
