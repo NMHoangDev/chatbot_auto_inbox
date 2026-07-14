@@ -1385,29 +1385,47 @@ if (type === "new_message") {
 
   // ── Import session (gọi từ extension) ──────────────────────────────────
   const importFromExtension = useCallback(async () => {
+    type ZaloExtApi = {
+      isAvailable: () => boolean;
+      ping: () => Promise<{ installed: boolean; version: string }>;
+      checkLogin: () => Promise<{
+        is_logged_in: boolean;
+        cookies_count: number;
+        missing: string[];
+        keys: string[];
+      }>;
+      importSession: (opts?: Record<string, unknown>) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    };
+
     // Bridge content-script publishes the API under window.__zaloExtension.
     // Legacy wrappers dùng window.zaloExtension (page-bridge.js cũ); pick whichever.
-    const extApi = (window as unknown as {
-      __zaloExtension?: {
-        isAvailable: () => boolean;
-        ping: () => Promise<{ installed: boolean; version: string }>;
-        checkLogin: () => Promise<{
-          is_logged_in: boolean;
-          cookies_count: number;
-          missing: string[];
-          keys: string[];
-        }>;
-        importSession: (opts?: Record<string, unknown>) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    function readExtApi(): ZaloExtApi | null {
+      const w = window as unknown as {
+        __zaloExtension?: ZaloExtApi;
+        zaloExtension?: { importSession: (opts?: unknown) => Promise<{ success: boolean; data?: unknown; error?: string }> };
       };
-      zaloExtension?: { importSession: (opts?: unknown) => Promise<{ success: boolean; data?: unknown; error?: string }> };
-    });
+      if (w.__zaloExtension) return w.__zaloExtension;
+      if (w.zaloExtension) {
+        return {
+          isAvailable: () => true,
+          ping: () => Promise.resolve({ installed: true, version: "legacy" }),
+          checkLogin: () => Promise.resolve({ is_logged_in: false, cookies_count: 0, missing: [], keys: [] }),
+          importSession: w.zaloExtension!.importSession.bind(w.zaloExtension),
+        };
+      }
+      return null;
+    }
 
-    const ext = extApi.__zaloExtension ?? (extApi.zaloExtension ? {
-      isAvailable: () => true,
-      ping: () => Promise.resolve({ installed: true, version: 'legacy' }),
-      checkLogin: () => Promise.resolve({ is_logged_in: false, cookies_count: 0, missing: [], keys: [] }),
-      importSession: extApi.zaloExtension.importSession.bind(extApi.zaloExtension),
-    } : null);
+    // page-bridge-main.js được content script inject bất đồng bộ (script tag
+    // load từ chrome-extension://) — thường xong trong vài ms, nhưng nếu user
+    // bấm nút ngay khi trang vừa load (hoặc máy chậm), window.__zaloExtension
+    // có thể chưa kịp gán. Đợi tối đa 1.5s (giống cơ chế requestExtensionDomSync)
+    // thay vì kết luận "chưa cài" ngay ở lần check đầu tiên.
+    let ext = readExtApi();
+    for (let i = 0; !ext && i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      ext = readExtApi();
+    }
 
     if (!ext) {
       showToast(
