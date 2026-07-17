@@ -114,6 +114,16 @@ export async function resolveGroupInfo(api, accountId, groupId) {
       avatar_url: groupData.fullAvt || groupData.avt || null,
       member_count: groupData.totalMember || (groupData.memberIds?.length || 0),
       group_type: groupData.type === 2 ? 'community' : 'group',
+      // Danh sách thành viên — dùng cho gợi ý "@" tag người cụ thể ở FE
+      // (xem ZaloChatPanel). getGroupInfo() đã trả sẵn currentMems (id + tên
+      // hiển thị) nên không cần gọi thêm getGroupMembersInfo.
+      members: Array.isArray(groupData.currentMems)
+        ? groupData.currentMems.map((m) => ({
+            uid: String(m.id),
+            name: m.dName || m.zaloName || String(m.id),
+            avatar: m.avatar || null,
+          }))
+        : [],
     };
     groupCache.set(key, { ts: now, payload, failed: false });
     return payload;

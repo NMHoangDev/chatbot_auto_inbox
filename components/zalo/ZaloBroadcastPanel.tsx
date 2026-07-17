@@ -12,7 +12,7 @@ interface Props {
   status: ZaloBroadcastResponse | ZaloBroadcastStatus | null;
   /**
    * Nhận toàn bộ messages[] (≥1). Hook xử lý việc gửi từng message lần lượt
-   * tới tất cả targets — backend tự động queue + delay 3s giữa các lần.
+   * tới tất cả targets — backend tự động queue + delay 5s giữa các lần.
    * Backward-compat: nếu hook cũ chỉ nhận content, có thể chỉ gửi message[0].
    */
   onSend: (
@@ -297,7 +297,7 @@ export function ZaloBroadcastPanel({
             ) : (
               <span>
                 Sẽ gửi <b>{validCount}</b> tin nhắn × <b>{selected.size}</b> người nhận = <b>{validCount * selected.size}</b> tin,
-                delay 3s mỗi lần để tránh bị Zalo chặn.
+                delay 5s mỗi lần để tránh bị Zalo chặn.
               </span>
             )}
           </div>

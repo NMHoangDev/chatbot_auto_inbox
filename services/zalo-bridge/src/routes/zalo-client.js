@@ -20,8 +20,11 @@
  *     → refresh tin nhắn mới nhất
  *
  *   POST   /api/all-platform/zalo/conversations/:id/send
- *     body { text: string }
- *     → gửi text message
+ *     body { text: string, mentions?: [{pos, len, uid}] }
+ *     → gửi text message. Text chứa "@all" (không phân biệt hoa/thường) khi
+ *       gửi vào group sẽ tự tag toàn bộ thành viên nhóm (buildAllMentions).
+ *       `mentions` (do FE tính khi user chọn người từ dropdown "@") tag từng
+ *       thành viên cụ thể — chỉ có hiệu lực với group (resolveMentions).
  *
  *   POST   /api/all-platform/zalo/conversations/:id/send-media
  *     multipart với files[]
@@ -521,6 +524,41 @@ async function resolveFinalType(req, ctx, parsed) {
   return { finalType: resolved };
 }
 
+// ── "@all": tag toàn bộ thành viên nhóm ─────────────────────────────────────
+// Zalo có sẵn 1 cơ chế mention-all ở tầng protocol: 1 mention entry với uid
+// đặc biệt "-1" khiến server tự fan-out thông báo tới MỌI thành viên nhóm,
+// không cần bridge tự lấy danh sách member (xem zca-js
+// apis/sendMessage.js#handleMentions: `type: m.uid == "-1" ? 1 : 0`). Chỉ có
+// hiệu lực khi gửi vào group — zca-js tự bỏ qua mentions nếu là thread user.
+function buildAllMentions(text) {
+  const match = /@all\b/i.exec(text || '');
+  if (!match) return undefined;
+  return [{ pos: match.index, len: match[0].length, uid: '-1' }];
+}
+
+// ── Tag người cụ thể: mentions do FE tự tính (ZaloChatPanel dropdown "@") ───
+// FE tính sẵn {pos, len, uid} theo UTF-16 code unit index (JS string index —
+// khớp 100% với `msg.length` mà zca-js dùng để validate, xem
+// zca-js/apis/sendMessage.js#handleMentions, kể cả khi text có dấu tiếng
+// Việt vì cả browser lẫn Node đều dùng UTF-16 cho String). Chỉ tin tưởng 1
+// phần: validate lại bounds + ký tự tại `pos` phải là "@" để chặn trường hợp
+// FE tính lệch offset (vd race giữa chọn tag và gõ thêm chữ).
+function sanitizeProvidedMentions(text, mentions) {
+  if (!Array.isArray(mentions)) return undefined;
+  const len = (text || '').length;
+  const cleaned = mentions
+    .filter((m) => m && typeof m.pos === 'number' && typeof m.len === 'number' && m.uid)
+    .map((m) => ({ pos: Math.trunc(m.pos), len: Math.trunc(m.len), uid: String(m.uid) }))
+    .filter((m) => m.pos >= 0 && m.len > 0 && m.pos + m.len <= len && text[m.pos] === '@');
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+// "@all" (auto-detect trong text) luôn ưu tiên hơn mentions FE gửi lên — tag
+// toàn bộ nhóm thì tag từng người cụ thể không còn ý nghĩa.
+function resolveMentions(text, providedMentions) {
+  return buildAllMentions(text) || sanitizeProvidedMentions(text, providedMentions);
+}
+
 // ── Messages: list ─────────────────────────────────────────────────────────────
 router.get('/all-platform/zalo/conversations/:id/messages', async (req, res) => {
   try {
@@ -657,16 +695,20 @@ router.post('/all-platform/zalo/conversations/:id/send', async (req, res) => {
 
     const text = String(req.body?.text || '').trim();
     if (!text) return res.status(400).json({ error: 'text is required' });
+    const mentions = resolveMentions(text, req.body?.mentions);
 
     // ── LOG: REST send được gọi từ frontend ─────────────────────────────────
     logger.info(
       `[${ctx.accountId}] [SEND_API] convId_in_url=${req.params.id} ` +
       `parsed.threadId=${parsed.threadId} clientType=${req.body?.thread_type || 'none'} ` +
-      `finalType=${finalType} text="${text.slice(0, 80)}"`
+      `finalType=${finalType} text="${text.slice(0, 80)}"${mentions ? ` [mentions=${mentions.length}]` : ''}`
     );
 
     try {
-      await sessionManager.sendMessage(ctx.accountId, parsed.threadId, finalType, { msg: text });
+      await sessionManager.sendMessage(ctx.accountId, parsed.threadId, finalType, {
+        msg: text,
+        ...(mentions ? { mentions } : {}),
+      });
     } catch (e) {
       logger.error(`[${ctx.accountId}] sendMessage failed`, { err: e.message });
       return res.status(502).json({ error: e.message });
@@ -720,18 +762,27 @@ router.post('/all-platform/zalo/conversations/:id/send-media', (req, res, next) 
     }
 
     const text = String(req.body?.text || '').trim();
+    // multipart form field → luôn là string JSON (khác /send dùng JSON body thẳng).
+    let providedMentions;
+    try {
+      providedMentions = req.body?.mentions ? JSON.parse(req.body.mentions) : undefined;
+    } catch {
+      providedMentions = undefined;
+    }
+    const mentions = resolveMentions(text, providedMentions);
 
     // ── LOG: REST send-media được gọi từ frontend ───────────────────────────
     logger.info(
       `[${ctx.accountId}] [SEND_MEDIA_API] convId_in_url=${req.params.id} ` +
       `parsed.threadId=${parsed.threadId} finalType=${finalType} ` +
-      `files=${renamedPaths.length} text="${text.slice(0, 80)}"`
+      `files=${renamedPaths.length} text="${text.slice(0, 80)}"${mentions ? ` [mentions=${mentions.length}]` : ''}`
     );
 
     try {
       await sessionManager.sendMessage(ctx.accountId, parsed.threadId, finalType, {
         msg: text,
         attachments: renamedPaths.length === 1 ? renamedPaths[0] : renamedPaths,
+        ...(mentions ? { mentions } : {}),
       });
     } catch (e) {
       logger.error(`[${ctx.accountId}] sendMessage (media) failed`, { err: e.message });
@@ -782,9 +833,11 @@ router.post('/all-platform/zalo/broadcasts/preview', (req, res) => {
 //   • Cũ: { content: "tin nhắn duy nhất", targets: [...] }
 //   • Mới: { messages: ["msg 1", "msg 2", ...], targets: [...] }
 //
-// Hành vi: với MỖI message, gửi tuần tự tới TẤT CẢ targets, delay 3s giữa
-// mỗi lần gửi. Sau khi xong 1 message, delay 5s rồi mới chuyển sang message
-// tiếp theo (tránh bị Zalo rate-limit khi gửi liên tục nhiều round).
+// Hành vi: với MỖI message, gửi tuần tự tới TẤT CẢ targets, delay 5s giữa
+// mỗi nhóm/target (kể cả khi chuyển sang message tiếp theo) để tránh bị
+// Zalo rate-limit khi gửi liên tục nhiều round. Message chứa "@all" (không
+// phân biệt hoa/thường) sẽ tự động tag toàn bộ thành viên nhóm đích
+// (buildAllMentions — chỉ có hiệu lực với target là group).
 //
 // Status trả về có thêm `current_message` (0-indexed) và `total_messages`
 // để UI hiển thị progress theo từng tin nhắn.
@@ -845,6 +898,7 @@ router.post('/all-platform/zalo/broadcasts', async (req, res) => {
 
       for (let mIdx = 0; mIdx < messages.length; mIdx++) {
         const msg = messages[mIdx];
+        const mentions = buildAllMentions(msg);
         campaign.current_message = mIdx;
 
         for (let i = 0; i < targets.length; i++) {
@@ -882,7 +936,10 @@ router.post('/all-platform/zalo/broadcasts', async (req, res) => {
             continue;
           }
           try {
-            await sessionManager.sendMessage(ctx.accountId, parsed.threadId, finalType, { msg });
+            await sessionManager.sendMessage(ctx.accountId, parsed.threadId, finalType, {
+              msg,
+              ...(mentions ? { mentions } : {}),
+            });
             totalSent++;
             campaign.sent = totalSent;
             campaign.per_message[mIdx].sent++;
@@ -893,11 +950,10 @@ router.post('/all-platform/zalo/broadcasts', async (req, res) => {
             errors.push(`[msg ${mIdx + 1}] ${t.id}: ${e.message}`);
             campaign.errors = errors;
           }
-          // Delay giữa các target (3s). Bỏ qua delay nếu là target cuối
-          // của message hiện tại → chuyển sang block "delay giữa message"
-          // bên dưới (5s) thay vì cộng dồn 8s.
+          // Delay 5s giữa mỗi nhóm/target kế tiếp (cũng dùng luôn cho lượt
+          // chuyển sang message tiếp theo, không cộng dồn thêm delay riêng).
           if (i < targets.length - 1 || mIdx < messages.length - 1) {
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 5000));
           }
         }
       }

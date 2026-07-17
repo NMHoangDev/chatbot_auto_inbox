@@ -19,7 +19,9 @@ import {
   ZaloBroadcastStatus,
   ZaloBroadcastTarget,
   ZaloConversation,
+  ZaloGroupMember,
   ZaloLoginStatus,
+  ZaloMention,
   ZaloMessage,
 } from "@/lib/zalo-api";
 import { useApp } from "@/components/providers/AppProvider";
@@ -450,6 +452,12 @@ export function useZalo() {
 
   const [replyText, setReplyText] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  // Tag người cụ thể trong replyText — {pos, len, uid} do ZaloChatPanel tính
+  // khi user chọn 1 thành viên từ dropdown "@". Reset sau khi gửi thành công.
+  const [mentions, setMentions] = useState<ZaloMention[]>([]);
+  // Danh sách thành viên nhóm đang mở — nguồn gợi ý cho dropdown "@".
+  // Rỗng với thread user (DM) hoặc khi bridge chưa resolve được.
+  const [groupMembers, setGroupMembers] = useState<ZaloGroupMember[]>([]);
 
   // Ref mirror của currentAccountId — phòng trường hợp SSE / saveMessagesToSupabase
   // nhận event trước khi re-render propagate accountId mới vào closure.
@@ -472,6 +480,40 @@ export function useZalo() {
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  // ── Load thành viên nhóm cho dropdown "@" ───────────────────────────────
+  // Chỉ chạy lại khi openConvId đổi (không phụ thuộc `conversations` — mảng
+  // này tạo lại reference mỗi lần SSE cập nhật, nếu đưa vào dep array sẽ gọi
+  // lại getGroupInfo liên tục dù group không đổi). Đọc thread_type/thread_id
+  // từ conversationsRef tại thời điểm effect chạy là đủ chính xác cho use
+  // case này (mở conversation).
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMembers() {
+      if (!openConvId) {
+        setGroupMembers([]);
+        return;
+      }
+      const conv = conversationsRef.current.find(
+        (c) => c.conversation_id === openConvId || c.thread_id === openConvId
+      );
+      if (!conv || conv.thread_type !== "group") {
+        setGroupMembers([]);
+        return;
+      }
+      const threadId = conv.thread_id || openConvId;
+      try {
+        const info = await zaloApi.getGroupInfo(threadId, accountIdRef.current);
+        if (!cancelled) setGroupMembers(info?.members || []);
+      } catch {
+        if (!cancelled) setGroupMembers([]);
+      }
+    }
+    void loadMembers();
+    return () => {
+      cancelled = true;
+    };
+  }, [openConvId]);
 
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastCampaignId, setBroadcastCampaignId] = useState<string | null>(
@@ -628,6 +670,10 @@ export function useZalo() {
   const openConversation = useCallback(async (convId: string) => {
     setOpenConvId(convId);
     setMessages([]);
+    // Mentions trỏ tới uid thành viên của group CŨ — sang group khác thì tag
+    // nhầm người (hoặc tag người không thuộc nhóm mới → Zalo bỏ qua âm thầm).
+    // replyText vẫn giữ nguyên (hành vi cũ), chỉ mentions phải reset.
+    setMentions([]);
     const threadId = convId.includes(":") ? convId.split(":").slice(1).join(":") : convId;
     // ── LOG: mở conversation ────────────────────────────────────────────────
     // eslint-disable-next-line no-console
@@ -788,6 +834,16 @@ export function useZalo() {
     const text = replyText.trim();
     if (!text && pendingFiles.length === 0) return;
 
+    // mentions.pos được tính theo replyText GỐC (chưa trim). Backend trim()
+    // text trước khi validate mentions → phải dịch pos theo đúng số ký tự
+    // whitespace bị cắt ở ĐẦU chuỗi (trailing trim không ảnh hưởng offset
+    // trước nó). Bỏ luôn mention nào bị lệch ra ngoài text sau khi dịch —
+    // an toàn hơn là gửi lên 1 offset sai khiến bridge tag nhầm người.
+    const leadingTrimLen = replyText.length - replyText.trimStart().length;
+    const sendMentions = mentions
+      .map((m) => ({ ...m, pos: m.pos - leadingTrimLen }))
+      .filter((m) => m.pos >= 0 && m.pos + m.len <= text.length);
+
     // Resolve thread_type từ conversation state TRƯỚC khi gửi — UI biết chính
     // xác conv đang mở là group/user, gửi kèm để bridge không phải đoán.
     // Trước đây không gửi → bridge cache miss → fallback 'user' → gửi nhầm DM.
@@ -808,12 +864,13 @@ export function useZalo() {
         `thread_type=${sendThreadType} text="${text.slice(0, 80)}"`
       );
       if (pendingFiles.length > 0) {
-        await zaloApi.sendMedia(openConvId, pendingFiles, text, sendThreadType, accountIdRef.current);
+        await zaloApi.sendMedia(openConvId, pendingFiles, text, sendThreadType, accountIdRef.current, sendMentions);
       } else {
-        await zaloApi.sendMessage(openConvId, text, sendThreadType, accountIdRef.current);
+        await zaloApi.sendMessage(openConvId, text, sendThreadType, accountIdRef.current, sendMentions);
       }
       setReplyText("");
       setPendingFiles([]);
+      setMentions([]);
 
       // Bridge đã forward SSE → frontend save Supabase.
       // Đợi 300ms cho phép SSE POST hoàn tất, sau đó refetch.
@@ -849,7 +906,7 @@ export function useZalo() {
     } finally {
       setSending(false);
     }
-  }, [openConvId, replyText, pendingFiles, refreshCurrentThread, showToast]);
+  }, [openConvId, replyText, pendingFiles, mentions, refreshCurrentThread, showToast]);
 
   // ── Broadcast ───────────────────────────────────────────────────────────
   const sendBroadcast = useCallback(
@@ -1511,6 +1568,9 @@ if (type === "new_message") {
     setReplyText,
     pendingFiles,
     setPendingFiles,
+    mentions,
+    setMentions,
+    groupMembers,
     sendCurrentMessage,
     syncCurrentChat,
 

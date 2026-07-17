@@ -1,8 +1,8 @@
 "use client";
 
-import { Image as ImageIcon, Loader2, MessageCircle, Paperclip, RefreshCw, Send, User, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { ZaloConversation, ZaloMessage } from "@/lib/zalo-api";
+import { AtSign, Image as ImageIcon, Loader2, MessageCircle, Paperclip, RefreshCw, Send, User, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ZaloConversation, ZaloGroupMember, ZaloMention, ZaloMessage } from "@/lib/zalo-api";
 
 interface Props {
   conv: ZaloConversation | null;
@@ -13,8 +13,81 @@ interface Props {
   setReplyText: (s: string) => void;
   pendingFiles: File[];
   setPendingFiles: (files: File[]) => void;
+  /** Thành viên nhóm đang mở — nguồn gợi ý khi gõ "@". Rỗng với DM. */
+  members: ZaloGroupMember[];
+  mentions: ZaloMention[];
+  setMentions: (updater: ZaloMention[] | ((prev: ZaloMention[]) => ZaloMention[])) => void;
   onSend: () => void;
   onSync: () => void;
+}
+
+type MentionCandidate = ZaloGroupMember & { insertText?: string };
+
+const TAG_ALL_CANDIDATE: MentionCandidate = {
+  uid: "-1",
+  name: "Tất cả mọi người",
+  avatar: null,
+  insertText: "all",
+};
+
+function normalizeForSearch(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/đ/gi, "d")
+    .toLowerCase();
+}
+
+// ── Diff-shift mentions khi text đổi ────────────────────────────────────────
+// Textarea không phải rich-editor nên mention chỉ là 1 cặp (pos, len, uid)
+// trỏ vào text thường — mỗi lần user gõ thêm/xoá ký tự, mọi mention nằm SAU
+// vị trí sửa phải dịch offset theo đúng độ lệch độ dài, còn mention nào bị
+// sửa đè lên (user gõ đè vào giữa tên đã tag) phải loại bỏ vì không còn đúng
+// nữa. Tìm phần chung ở đầu + cuối 2 chuỗi để xác định đúng vùng đã đổi.
+function shiftMentions(oldText: string, newText: string, list: ZaloMention[]): ZaloMention[] {
+  if (list.length === 0) return list;
+  const maxStart = Math.min(oldText.length, newText.length);
+  let start = 0;
+  while (start < maxStart && oldText[start] === newText[start]) start++;
+  let oldEnd = oldText.length;
+  let newEnd = newText.length;
+  while (oldEnd > start && newEnd > start && oldText[oldEnd - 1] === newText[newEnd - 1]) {
+    oldEnd--;
+    newEnd--;
+  }
+  const delta = newEnd - oldEnd;
+  const result: ZaloMention[] = [];
+  for (const m of list) {
+    const mEnd = m.pos + m.len;
+    if (mEnd <= start) {
+      result.push(m);
+    } else if (m.pos >= oldEnd) {
+      result.push({ ...m, pos: m.pos + delta });
+    }
+    // else: mention overlaps vùng vừa sửa → bỏ, không còn hợp lệ.
+  }
+  return result;
+}
+
+// Tìm trigger "@" đang gõ dở trước vị trí con trỏ (caret). Chỉ tính là
+// trigger nếu "@" đứng ở đầu chuỗi hoặc ngay sau khoảng trắng/xuống dòng
+// (tránh nhầm với email, vd "a@b.com"), và giữa "@" và caret không có
+// khoảng trắng (gõ dấu cách → coi như huỷ, giống Slack/Messenger).
+function findMentionTrigger(text: string, caret: number): { start: number; query: string } | null {
+  let i = caret - 1;
+  while (i >= 0) {
+    const ch = text[i];
+    if (ch === "@") {
+      const before = i === 0 ? " " : text[i - 1];
+      if (/\s/.test(before)) {
+        return { start: i, query: text.slice(i + 1, caret) };
+      }
+      return null;
+    }
+    if (/\s/.test(ch)) return null;
+    i--;
+  }
+  return null;
 }
 
 function formatTime(dateStr?: string | null): string {
@@ -112,16 +185,43 @@ export function ZaloChatPanel({
   setReplyText,
   pendingFiles,
   setPendingFiles,
+  members,
+  mentions,
+  setMentions,
   onSend,
   onSync,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  // Dropdown gợi ý "@" — chỉ có ý nghĩa trong group (Zalo chỉ tag được người
+  // trong group, DM không có khái niệm "tag" ai khác ngoài đối phương).
+  const isGroup = conv?.thread_type === "group";
+  const [mentionTrigger, setMentionTrigger] = useState<{ start: number; query: string } | null>(null);
+  const [highlightIdx, setHighlightIdx] = useState(0);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  // Đổi hội thoại → đóng dropdown đang mở dở (tránh tag nhầm nhóm khác).
+  useEffect(() => {
+    setMentionTrigger(null);
+  }, [conv?.conversation_id]);
+
+  const candidates: MentionCandidate[] = useMemo(() => {
+    if (!mentionTrigger || !isGroup) return [];
+    const q = normalizeForSearch(mentionTrigger.query);
+    const pool: MentionCandidate[] = [TAG_ALL_CANDIDATE, ...members];
+    const filtered = q.length === 0 ? pool : pool.filter((m) => normalizeForSearch(m.name).includes(q));
+    return filtered.slice(0, 8);
+  }, [mentionTrigger, isGroup, members]);
+
+  useEffect(() => {
+    setHighlightIdx(0);
+  }, [candidates.length, mentionTrigger?.start]);
 
   const handleFileSelect = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -132,6 +232,65 @@ export function ZaloChatPanel({
     e.preventDefault();
     setDragOver(false);
     handleFileSelect(e.dataTransfer.files);
+  };
+
+  const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const oldText = replyText;
+    const newText = e.target.value;
+    setMentions((prev) => shiftMentions(oldText, newText, prev));
+    setReplyText(newText);
+    const caret = e.target.selectionStart ?? newText.length;
+    setMentionTrigger(isGroup ? findMentionTrigger(newText, caret) : null);
+  };
+
+  const selectMention = (member: MentionCandidate) => {
+    if (!mentionTrigger) return;
+    const { start, query } = mentionTrigger;
+    const caret = start + 1 + query.length;
+    const insertName = member.insertText ?? member.name;
+    const insertion = `@${insertName} `;
+    const newText = replyText.slice(0, start) + insertion + replyText.slice(caret);
+    const shifted = shiftMentions(replyText, newText, mentions);
+    const mentionLen = insertion.trimEnd().length;
+    setMentions([...shifted, { pos: start, len: mentionLen, uid: member.uid }]);
+    setReplyText(newText);
+    setMentionTrigger(null);
+    const cursor = start + insertion.length;
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  const handleReplyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionTrigger && candidates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightIdx((i) => (i + 1) % candidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightIdx((i) => (i - 1 + candidates.length) % candidates.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        selectMention(candidates[highlightIdx]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionTrigger(null);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void onSend();
+    }
   };
 
   if (!conv) {
@@ -253,19 +412,51 @@ export function ZaloChatPanel({
         >
           <Paperclip className="h-5 w-5" />
         </button>
-        <textarea
-          value={replyText}
-          onChange={(e) => setReplyText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void onSend();
-            }
-          }}
-          placeholder="Nhập tin nhắn..."
-          rows={1}
-          className="flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white"
-        />
+        <div className="relative flex-1">
+          {mentionTrigger && candidates.length > 0 && (
+            <div className="absolute bottom-full left-0 z-10 mb-1.5 max-h-56 w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+              {candidates.map((c, i) => (
+                <button
+                  key={c.uid}
+                  type="button"
+                  onMouseDown={(e) => {
+                    // preventDefault: giữ focus textarea, tránh blur đóng dropdown
+                    // trước khi onClick kịp chạy.
+                    e.preventDefault();
+                    selectMention(c);
+                  }}
+                  onMouseEnter={() => setHighlightIdx(i)}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${
+                    i === highlightIdx ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {c.uid === "-1" ? (
+                    <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-100 text-blue-600">
+                      <AtSign className="h-3.5 w-3.5" />
+                    </div>
+                  ) : c.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.avatar} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-300 text-[10px] font-bold text-white">
+                      {c.name?.[0]?.toUpperCase() || <User className="h-3 w-3" />}
+                    </div>
+                  )}
+                  <span className="truncate">{c.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <textarea
+            ref={textareaRef}
+            value={replyText}
+            onChange={handleReplyChange}
+            onKeyDown={handleReplyKeyDown}
+            placeholder={isGroup ? "Nhập tin nhắn... (gõ @ để tag thành viên)" : "Nhập tin nhắn..."}
+            rows={1}
+            className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white"
+          />
+        </div>
         <button
           onClick={onSend}
           disabled={sending || (!replyText.trim() && pendingFiles.length === 0)}

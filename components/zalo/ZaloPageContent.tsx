@@ -100,6 +100,9 @@ export function ZaloPageContent() {
             setReplyText={z.setReplyText}
             pendingFiles={z.pendingFiles}
             setPendingFiles={z.setPendingFiles}
+            members={z.groupMembers}
+            mentions={z.mentions}
+            setMentions={z.setMentions}
             onSend={z.sendCurrentMessage}
             onSync={z.syncCurrentChat}
           />

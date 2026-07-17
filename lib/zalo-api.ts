@@ -148,6 +148,25 @@ export type ZaloMessage = {
   group_id?: string | null;
 };
 
+export type ZaloGroupMember = {
+  uid: string;
+  name: string;
+  avatar: string | null;
+};
+
+/**
+ * 1 lượt tag người trong tin nhắn — pos/len tính theo UTF-16 code unit
+ * (JS string index, tức `text.length`/`text.slice()` bình thường). zca-js
+ * validate mentions bằng đúng `msg.length` (cũng UTF-16) nên browser JS và
+ * Node JS luôn khớp offset dù text có dấu tiếng Việt — không cần quy đổi.
+ * uid "-1" là mã đặc biệt của Zalo cho "tag toàn bộ thành viên nhóm".
+ */
+export type ZaloMention = {
+  pos: number;
+  len: number;
+  uid: string;
+};
+
 export type ZaloBroadcastTarget = {
   id: string;
   name: string;
@@ -291,6 +310,12 @@ export const zaloApi = {
     thread_type: "group";
     group_name: string;
     avatar_url: string | null;
+    /**
+     * Danh sách thành viên nhóm — dùng để gợi ý khi user gõ "@" trong ô nhập
+     * tin nhắn (xem ZaloChatPanel). Rỗng nếu bridge chỉ resolve được tên qua
+     * fallback getCMRecent (không có member list).
+     */
+    members?: ZaloGroupMember[];
   } | null> {
     if (!groupId) return null;
     try {
@@ -300,6 +325,7 @@ export const zaloApi = {
         thread_type: "group";
         group_name: string;
         avatar_url: string | null;
+        members?: ZaloGroupMember[];
       }>(
         `/api/all-platform/zalo/group-info?account_id=${encodeURIComponent(accountId)}&group_id=${encodeURIComponent(groupId)}`,
         { timeoutMs: 10_000 }
@@ -400,11 +426,20 @@ export const zaloApi = {
      * Trước đây thiếu → bridge fallback 'user' → gửi nhầm vào DM.
      */
     threadType: "user" | "group",
-    accountId: string = ZALO_ACCOUNT_ID
+    accountId: string = ZALO_ACCOUNT_ID,
+    /** Tag người cụ thể — chỉ có hiệu lực khi threadType === "group". */
+    mentions?: ZaloMention[]
   ): Promise<{ ok: boolean; conversation_id: string; message: string }> {
     return request(
       `/api/all-platform/zalo/conversations/${encodeURIComponent(conversationId)}/send?account_id=${encodeURIComponent(accountId)}`,
-      { method: "POST", body: { text, thread_type: threadType } }
+      {
+        method: "POST",
+        body: {
+          text,
+          thread_type: threadType,
+          ...(mentions && mentions.length > 0 ? { mentions } : {}),
+        },
+      }
     );
   },
 
@@ -413,11 +448,13 @@ export const zaloApi = {
     files: File[],
     text: string | undefined,
     threadType: "user" | "group",
-    accountId: string = ZALO_ACCOUNT_ID
+    accountId: string = ZALO_ACCOUNT_ID,
+    mentions?: ZaloMention[]
   ): Promise<{ ok: boolean; files_sent: number; message: string }> {
     const fd = new FormData();
     if (text) fd.append("text", text);
     fd.append("thread_type", threadType);
+    if (mentions && mentions.length > 0) fd.append("mentions", JSON.stringify(mentions));
     files.forEach((f) => fd.append("files", f, f.name));
     return request(
       `/api/all-platform/zalo/conversations/${encodeURIComponent(conversationId)}/send-media?account_id=${encodeURIComponent(accountId)}`,
