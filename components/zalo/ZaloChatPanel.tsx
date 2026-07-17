@@ -1,6 +1,6 @@
 "use client";
 
-import { AtSign, Image as ImageIcon, Loader2, MessageCircle, Paperclip, RefreshCw, Send, User, X } from "lucide-react";
+import { ArrowLeft, AtSign, Image as ImageIcon, Loader2, MessageCircle, Paperclip, RefreshCw, Send, User, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZaloConversation, ZaloGroupMember, ZaloMention, ZaloMessage } from "@/lib/zalo-api";
 
@@ -19,6 +19,8 @@ interface Props {
   setMentions: (updater: ZaloMention[] | ((prev: ZaloMention[]) => ZaloMention[])) => void;
   onSend: () => void;
   onSync: () => void;
+  /** Chỉ truyền trên mobile — hiện nút back quay về danh sách hội thoại. */
+  onBack?: () => void;
 }
 
 type MentionCandidate = ZaloGroupMember & { insertText?: string };
@@ -190,6 +192,7 @@ export function ZaloChatPanel({
   setMentions,
   onSend,
   onSync,
+  onBack,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -305,10 +308,19 @@ export function ZaloChatPanel({
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex h-full flex-col overflow-hidden bg-white lg:rounded-xl lg:border lg:border-slate-200 lg:shadow-sm">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-600 transition hover:bg-slate-200 lg:hidden"
+              title="Quay lại danh sách"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          )}
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-bold text-white">
             {conv.conversation_name?.[0]?.toUpperCase() || "?"}
           </div>
@@ -324,10 +336,10 @@ export function ZaloChatPanel({
         <button
           onClick={onSync}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-blue-500 hover:text-blue-600 disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-blue-500 hover:text-blue-600 disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Sync
+          <span className="hidden sm:inline">Sync</span>
         </button>
       </div>
 
@@ -414,7 +426,7 @@ export function ZaloChatPanel({
         </button>
         <div className="relative flex-1">
           {mentionTrigger && candidates.length > 0 && (
-            <div className="absolute bottom-full left-0 z-10 mb-1.5 max-h-56 w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+            <div className="absolute bottom-full left-0 z-10 mb-1.5 max-h-56 w-64 max-w-[calc(100vw-4rem)] overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
               {candidates.map((c, i) => (
                 <button
                   key={c.uid}

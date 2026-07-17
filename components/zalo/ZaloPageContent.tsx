@@ -75,10 +75,9 @@ export function ZaloPageContent() {
         </div>
       ) : null}
 
-      {/* Main layout: 3-pane */}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,3fr)_minmax(0,7fr)] gap-3">
-        {/* Conversation list */}
-        <div className="hidden min-h-0 lg:block">
+      {/* Desktop (lg+): 2-pane, list + chat side-by-side, luôn hiện cả 2 */}
+      <div className="hidden min-h-0 flex-1 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,7fr)] lg:gap-3">
+        <div className="min-h-0">
           <ZaloConversationList
             conversations={z.conversations}
             loading={z.loadingConvs}
@@ -88,8 +87,6 @@ export function ZaloPageContent() {
             onSelectBroadcast={() => setBroadcastOpen(true)}
           />
         </div>
-
-        {/* Chat panel */}
         <div className="min-h-0">
           <ZaloChatPanel
             conv={currentConv}
@@ -109,8 +106,10 @@ export function ZaloPageContent() {
         </div>
       </div>
 
-      {/* Mobile conversation list (visible when <lg) */}
-      <div className="block min-h-[300px] lg:hidden">
+      {/* Mobile (<lg): 1 pane — mặc định hiện danh sách; mở 1 hội thoại thì
+          chat panel phủ full-screen (fixed, che luôn header phía trên) thay
+          vì chen chung màn hình với list, giống UX Messenger/Zalo gốc. */}
+      <div className="min-h-0 flex-1 lg:hidden">
         <ZaloConversationList
           conversations={z.conversations}
           loading={z.loadingConvs}
@@ -120,6 +119,26 @@ export function ZaloPageContent() {
           onSelectBroadcast={() => setBroadcastOpen(true)}
         />
       </div>
+      {z.openConvId && (
+        <div className="fixed inset-0 z-40 flex flex-col bg-white lg:hidden">
+          <ZaloChatPanel
+            conv={currentConv}
+            messages={z.messages}
+            loading={z.loadingChat}
+            sending={z.sending}
+            replyText={z.replyText}
+            setReplyText={z.setReplyText}
+            pendingFiles={z.pendingFiles}
+            setPendingFiles={z.setPendingFiles}
+            members={z.groupMembers}
+            mentions={z.mentions}
+            setMentions={z.setMentions}
+            onSend={z.sendCurrentMessage}
+            onSync={z.syncCurrentChat}
+            onBack={z.closeConversation}
+          />
+        </div>
+      )}
 
       {/* Broadcast modal */}
       <ZaloBroadcastPanel

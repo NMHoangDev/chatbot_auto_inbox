@@ -663,6 +663,13 @@ export function useZalo() {
     }
   }, [fetchConversations, showToast]);
 
+  // Đóng conversation đang mở — dùng cho nút "back" trên mobile (list ↔ chat
+  // full-screen). Không cần async như openConversation vì chỉ reset UI local,
+  // không phải load gì thêm.
+  const closeConversation = useCallback(() => {
+    setOpenConvId(null);
+  }, []);
+
   // ── Mở conversation ─────────────────────────────────────────────────────
   // Thiết kế mới: UI CHỈ ĐỌC từ Supabase. SSE là signal để refetch.
   // Khi user click thread → load messages từ Supabase, mark read trên Supabase,
@@ -1561,6 +1568,7 @@ if (type === "new_message") {
 
     openConvId,
     openConversation,
+    closeConversation,
     messages,
     loadingChat,
     sending,
