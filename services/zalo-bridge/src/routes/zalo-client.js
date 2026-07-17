@@ -55,6 +55,7 @@ import path from 'path';
 import { ThreadType } from 'zca-js';
 import { sessionManager } from '../services/sessionManager.js';
 import { resolveGroupInfo, resolveUserInfo } from '../services/threadInfoResolver.js';
+import { buildAllMentions } from '../services/mentions.js';
 import { logger } from '../utils/logger.js';
 
 const router = Router();
@@ -522,18 +523,6 @@ async function resolveFinalType(req, ctx, parsed) {
     };
   }
   return { finalType: resolved };
-}
-
-// ── "@all": tag toàn bộ thành viên nhóm ─────────────────────────────────────
-// Zalo có sẵn 1 cơ chế mention-all ở tầng protocol: 1 mention entry với uid
-// đặc biệt "-1" khiến server tự fan-out thông báo tới MỌI thành viên nhóm,
-// không cần bridge tự lấy danh sách member (xem zca-js
-// apis/sendMessage.js#handleMentions: `type: m.uid == "-1" ? 1 : 0`). Chỉ có
-// hiệu lực khi gửi vào group — zca-js tự bỏ qua mentions nếu là thread user.
-function buildAllMentions(text) {
-  const match = /@all\b/i.exec(text || '');
-  if (!match) return undefined;
-  return [{ pos: match.index, len: match[0].length, uid: '-1' }];
 }
 
 // ── Tag người cụ thể: mentions do FE tự tính (ZaloChatPanel dropdown "@") ───

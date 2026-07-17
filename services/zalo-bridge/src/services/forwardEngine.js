@@ -56,6 +56,7 @@ import axios from 'axios';
 import { ThreadType } from 'zca-js';
 import { logger } from '../utils/logger.js';
 import { getClient, resolveImageUrls } from './supabaseSync.js';
+import { buildAllMentions } from './mentions.js';
 
 const TEMP_DIR = process.env.ZALO_FORWARD_TEMP_DIR || '/app/data/temp_attachments';
 try {
@@ -65,10 +66,11 @@ try {
 }
 
 const RULES_CACHE_TTL_MS = 8000;
-// Delay giữa các lượt gửi liên tiếp (target/rule kế tiếp) — tăng từ 3s lên
-// 10s theo yêu cầu để tránh chạm rate-limit của Zalo khi 1 rule có nhiều
-// target hoặc 1 master có nhiều rule. Override qua env nếu cần tinh chỉnh.
-const FORWARD_DELAY_MS = Number(process.env.ZALO_FORWARD_DELAY_MS || 10000);
+// Delay giữa các lượt gửi liên tiếp (target/rule kế tiếp) — 5s theo yêu cầu
+// (2026-07-16) để cân bằng giữa tốc độ forward và rate-limit của Zalo khi 1
+// rule có nhiều target hoặc 1 master có nhiều rule. Override qua env nếu cần
+// tinh chỉnh (từng bị nâng lên 10s do rate-limit — hạ lại nếu thấy lỗi tăng).
+const FORWARD_DELAY_MS = Number(process.env.ZALO_FORWARD_DELAY_MS || 5000);
 const RETRY_DELAY_MS = 1500;
 const MAX_PER_MIN = Number(process.env.ZALO_FORWARD_MAX_PER_MIN || 60);
 // Cửa sổ chờ gom nhiều ảnh gửi cùng lúc (1 "album") thành 1 lượt forward.
@@ -232,12 +234,65 @@ async function downloadToTemp(url) {
 // ── Text: 1 lệnh forwardMessage() native fan-out tới tất cả target của rule ──
 // Delay FORWARD_DELAY_MS giữa các rule (nếu 1 master có nhiều rule) — trong
 // cùng 1 rule vẫn gửi 1 lệnh fan-out tới mọi target (không cần delay nội bộ).
+//
+// Ngoại lệ "@all": zca-js forwardMessage() (endpoint mforward) KHÔNG có tham
+// số mentions — tin "@all" gõ ở nhóm chính (mentions=1, tag-all hoạt động
+// đúng ở nhóm chính) khi forward qua nhóm phụ bằng forwardMessage() chỉ còn
+// là text thường, không tag ai (bug quan sát được 2026-07-17, xem log
+// SEND_API có `mentions=1` nhưng RECV ở nhóm phụ chỉ có content text). uid
+// "-1" (tag-all) được Zalo server resolve theo THREAD nhận, không phải theo
+// nhóm gốc, nên forward sang nhóm phụ vẫn tag đúng toàn bộ nhóm phụ — chỉ cần
+// gửi lại bằng sendMessage() kèm mentions thay vì forwardMessage(). Vì
+// sendMessage() gửi 1 target/lệnh (không fan-out nhiều target như
+// forwardMessage), phải lặp qua từng target + delay giữa các lượt.
 async function forwardText({ accountId, api, rules, threadId, sourceMsgId, msg, text }) {
   const ts = Number(msg.data?.ts) || Date.now();
+  const mentions = buildAllMentions(text);
   let isFirstRule = true;
   for (const rule of rules) {
     const targetIds = rule.targets.map((t) => t.target_thread_id);
     if (targetIds.length === 0) continue;
+
+    if (mentions) {
+      let isFirstTarget = true;
+      for (const targetId of targetIds) {
+        if (!isFirstRule || !isFirstTarget) await sleep(FORWARD_DELAY_MS);
+        isFirstRule = false;
+        isFirstTarget = false;
+        try {
+          const result = await withRetry(
+            () => api.sendMessage({ msg: text, mentions }, targetId, ThreadType.Group),
+            { label: `forwardText(@all) rule=${rule.rule_id} target=${targetId}` }
+          );
+          markForwarded(accountId, [result?.message?.msgId]);
+          await logForward({
+            rule_id: rule.rule_id,
+            account_id: accountId,
+            source_thread_id: threadId,
+            source_msg_id: sourceMsgId,
+            target_thread_id: targetId,
+            content_type: 'text',
+            status: 'success',
+          });
+        } catch (err) {
+          logger.error(
+            `[forward] [${accountId}] forwardText(@all) rule=${rule.rule_id} target=${targetId} failed: ${err.message}`
+          );
+          await logForward({
+            rule_id: rule.rule_id,
+            account_id: accountId,
+            source_thread_id: threadId,
+            source_msg_id: sourceMsgId,
+            target_thread_id: targetId,
+            content_type: 'text',
+            status: 'failed',
+            error: err.message,
+          });
+        }
+      }
+      continue;
+    }
+
     if (!isFirstRule) await sleep(FORWARD_DELAY_MS);
     isFirstRule = false;
     const targetSummary = targetIds.join(',');
