@@ -109,8 +109,14 @@ function sortConversationsByLatestMessage(
     }
     return 0;
   };
-  // DESC: thread có timestamp lớn (mới hơn) → đứng trước.
-  return [...list].sort((a, b) => tsOf(b) - tsOf(a));
+  // Ghim lên đầu trước, trong từng nhóm (ghim/không ghim) mới xếp theo
+  // timestamp DESC — nhóm chính đang ghim không bị trôi xuống dưới nhóm phụ
+  // dù nhóm phụ vừa có tin nhắn mới hơn.
+  return [...list].sort((a, b) => {
+    const pinDiff = (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0);
+    if (pinDiff !== 0) return pinDiff;
+    return tsOf(b) - tsOf(a);
+  });
 }
 
 // ── Supabase persistence ────────────────────────────────────────────────────
@@ -630,6 +636,26 @@ export function useZalo() {
       // ignore
     }
   }, []);
+
+  // ── Ghim/bỏ ghim hội thoại ───────────────────────────────────────────────
+  // Optimistic update (đổi UI + sắp xếp lại ngay) rồi mới gọi API — lỡ API
+  // fail thì refetch từ Supabase để revert lại đúng trạng thái thật.
+  const togglePin = useCallback(
+    async (conversationId: string, pinned: boolean) => {
+      setConversations((prev) =>
+        sortConversationsByLatestMessage(
+          prev.map((c) => (c.conversation_id === conversationId ? { ...c, is_pinned: pinned } : c))
+        )
+      );
+      try {
+        await zaloApi.setConversationPinned(conversationId, pinned, accountIdRef.current);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Không ghim được hội thoại", false);
+        void refreshConversations();
+      }
+    },
+    [refreshConversations, showToast]
+  );
 
   // Visibility refresh useEffect đặt ngay SAU refreshCurrentThread (line ~570)
   // để tránh TDZ khi reference trong dep array.
@@ -1565,6 +1591,7 @@ if (type === "new_message") {
     loadingConvs,
     syncConversations,
     refreshConversations: fetchConversations,
+    togglePin,
 
     openConvId,
     openConversation,

@@ -101,7 +101,11 @@ return {
     latest_is_self: !!c.latest_is_self,
     message_count: Number(c.message_count || 0),
     has_messages: !!c.has_messages,
-    is_pinned: !!c.is_pinned,
+    // Giữ null nếu payload không gửi field này (bridge/DOM-scrape KHÔNG biết
+    // gì về pin — đây là khái niệm chỉ tồn tại trong Supabase UI cache) →
+    // dbSafeRows sẽ strip field null này trước khi upsert, tránh ghi đè pin
+    // đã set qua PATCH /api/zalo/conversations/pin về false mỗi lần sync định kỳ.
+    is_pinned: c.is_pinned == null ? null : !!c.is_pinned,
     updated_at: new Date().toISOString(),
   };
 }
@@ -199,6 +203,7 @@ const dbSafeRows = rows.map((r) => {
     if (out.latest_message_at == null) delete out.latest_message_at;
     if (out.latest_content == null) delete out.latest_content;
     if (out.latest_sender_id == null) delete out.latest_sender_id;
+    if (out.is_pinned == null) delete out.is_pinned;
     return out;
   });
   const { data, error } = await supabase

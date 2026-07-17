@@ -26,17 +26,21 @@ export function ZaloPageContent() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Header card */}
-      <ZaloAuthCard
-        status={z.loginStatus}
-        loading={z.authLoading}
-        error={z.authError}
-        onImport={z.importFromExtension}
-        onLogout={z.logout}
-        onRefresh={z.refreshAuth}
-        onReconnect={z.reconnectBridge}
-        reconnecting={z.reconnecting}
-      />
+      {/* Header card — ẩn trên mobile: chiếm quá nhiều chỗ trên màn hình nhỏ,
+          các nút quản lý session (Reconnect WS/Đăng xuất/...) này chủ yếu
+          dùng khi setup ban đầu trên desktop. Giữ nguyên trên web (lg+). */}
+      <div className="hidden lg:block">
+        <ZaloAuthCard
+          status={z.loginStatus}
+          loading={z.authLoading}
+          error={z.authError}
+          onImport={z.importFromExtension}
+          onLogout={z.logout}
+          onRefresh={z.refreshAuth}
+          onReconnect={z.reconnectBridge}
+          reconnecting={z.reconnecting}
+        />
+      </div>
 
       {/* Realtime + Broadcast banner (ẩn khi không có gì để hiển thị) */}
       {(z.sseState !== "closed" && z.sseState !== "open") || isBroadcasting ? (
@@ -85,6 +89,7 @@ export function ZaloPageContent() {
             onOpen={z.openConversation}
             onSync={z.syncConversations}
             onSelectBroadcast={() => setBroadcastOpen(true)}
+            onTogglePin={z.togglePin}
           />
         </div>
         <div className="min-h-0">
@@ -117,6 +122,7 @@ export function ZaloPageContent() {
           onOpen={z.openConversation}
           onSync={z.syncConversations}
           onSelectBroadcast={() => setBroadcastOpen(true)}
+          onTogglePin={z.togglePin}
         />
       </div>
       {z.openConvId && (

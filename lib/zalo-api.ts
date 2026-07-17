@@ -132,6 +132,8 @@ export type ZaloConversation = {
   avatar_url?: string | null;
   unread_count: number;
   last_message_ts?: string | number | null;
+  /** Ghim lên đầu danh sách — vd nhóm chính khi auto-forward sang nhiều nhóm phụ. */
+  is_pinned?: boolean;
 };
 
 export type ZaloMessage = {
@@ -416,6 +418,33 @@ export const zaloApi = {
   }> {
     // Bridge local không có route /sync-messages — fallback no-op.
     return { conversation_id: conversationId, synced: 0, total: 0 };
+  },
+
+  /**
+   * Ghim/bỏ ghim 1 hội thoại lên đầu danh sách — lưu thẳng vào Supabase qua
+   * route Next.js nội bộ (giống getMessages, không qua bridge). Dùng khi
+   * user muốn 1 nhóm (vd nhóm chính đang auto-forward) luôn ở đầu, không bị
+   * trôi xuống dưới các nhóm phụ có tin nhắn mới hơn.
+   */
+  async setConversationPinned(
+    conversationId: string,
+    pinned: boolean,
+    accountId: string = ZALO_ACCOUNT_ID
+  ): Promise<{ ok: boolean }> {
+    const res = await fetch("/api/zalo/conversations/pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        account_id: accountId,
+        conversation_id: conversationId,
+        is_pinned: pinned,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new ZaloApiError(t || `HTTP ${res.status}`, res.status);
+    }
+    return res.json();
   },
 
   async sendMessage(

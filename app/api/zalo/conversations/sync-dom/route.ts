@@ -146,7 +146,6 @@ function toConversationRow(c: DomScrapedConv, accountId: string) {
     latest_is_self: latestIsSelf,
     message_count: msgs.length,
     has_messages: msgs.length > 0,
-    is_pinned: false,
     updated_at: new Date().toISOString(),
   };
 }

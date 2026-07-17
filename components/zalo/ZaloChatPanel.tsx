@@ -464,9 +464,12 @@ export function ZaloChatPanel({
             value={replyText}
             onChange={handleReplyChange}
             onKeyDown={handleReplyKeyDown}
-            placeholder={isGroup ? "Nhập tin nhắn... (gõ @ để tag thành viên)" : "Nhập tin nhắn..."}
+            placeholder={isGroup ? "Nhắn tin... (@ để tag)" : "Nhập tin nhắn..."}
             rows={1}
-            className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white"
+            // [&::placeholder]:truncate CHỈ áp dụng single-line/ellipsis lên
+            // placeholder — không phải lên className gốc, vì user vẫn cần gõ
+            // tin nhắn nhiều dòng (Shift+Enter) bình thường khi đã có nội dung.
+            className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white [&::placeholder]:truncate"
           />
         </div>
         <button

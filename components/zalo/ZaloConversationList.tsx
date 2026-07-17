@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, MessageSquare, MessageSquarePlus, RefreshCcw, Search, Send } from "lucide-react";
+import { Loader2, MessageSquare, MessageSquarePlus, Pin, RefreshCcw, Search, Send } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ZaloConversation } from "@/lib/zalo-api";
@@ -12,6 +12,7 @@ interface Props {
   onOpen: (id: string) => void;
   onSync: () => void;
   onSelectBroadcast: () => void;
+  onTogglePin: (conversationId: string, pinned: boolean) => void;
 }
 
 function formatRelativeTime(dateStr?: string | null): string {
@@ -34,6 +35,7 @@ export function ZaloConversationList({
   onOpen,
   onSync,
   onSelectBroadcast,
+  onTogglePin,
 }: Props) {
   const [query, setQuery] = useState("");
 
@@ -119,12 +121,21 @@ export function ZaloConversationList({
         ) : (
           filtered.map((c) => {
             const active = c.conversation_id === openConvId;
+            const pinned = !!c.is_pinned;
             return (
-              <button
+              // div (không phải <button>) vì bên trong còn 1 nút ghim riêng —
+              // button lồng button là HTML không hợp lệ, browser sẽ tự đẩy
+              // nút con ra ngoài khi parse, làm gãy hành vi click.
+              <div
                 key={c.conversation_id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onOpen(c.conversation_id)}
-                className={`flex w-full items-start gap-3 border-b border-slate-100 px-3.5 py-3.5 text-left transition hover:bg-slate-50 ${
-                  active ? "bg-blue-50" : ""
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") onOpen(c.conversation_id);
+                }}
+                className={`flex w-full cursor-pointer items-start gap-3 border-b border-slate-100 px-3.5 py-3.5 text-left transition hover:bg-slate-50 ${
+                  active ? "bg-blue-50" : pinned ? "bg-amber-50/60" : ""
                 }`}
               >
                 <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-base font-bold text-white">
@@ -132,11 +143,37 @@ export function ZaloConversationList({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-1">
-                    <div className="truncate text-sm font-bold text-slate-800">
-                      {c.conversation_name || "Không tên"}
+                    <div className="flex min-w-0 items-center gap-1">
+                      {pinned && <Pin className="h-3 w-3 shrink-0 fill-amber-500 text-amber-500" />}
+                      <div className="truncate text-sm font-bold text-slate-800">
+                        {c.conversation_name || "Không tên"}
+                      </div>
                     </div>
-                    <div className="shrink-0 text-[11px] text-slate-400">
-                      {formatRelativeTime(c.latest_message_at)}
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className="text-[11px] text-slate-400">
+                        {formatRelativeTime(c.latest_message_at)}
+                      </span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        title={pinned ? "Bỏ ghim" : "Ghim hội thoại lên đầu"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTogglePin(c.conversation_id, !pinned);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            onTogglePin(c.conversation_id, !pinned);
+                          }
+                        }}
+                        className={`grid h-6 w-6 place-items-center rounded-full transition hover:bg-slate-200 ${
+                          pinned ? "text-amber-500" : "text-slate-300 hover:text-slate-500"
+                        }`}
+                      >
+                        <Pin className={`h-3.5 w-3.5 ${pinned ? "fill-amber-500" : ""}`} />
+                      </span>
                     </div>
                   </div>
                   <div className="mt-0.5 truncate text-xs text-slate-500">
@@ -148,7 +185,7 @@ export function ZaloConversationList({
                     </span>
                   )}
                 </div>
-              </button>
+              </div>
             );
           })
         )}
