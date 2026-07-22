@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Markee Shopee Product Crawler",
+  "version": "1.0",
+  "description": "Crawl toàn bộ sản phẩm 1 shop Shopee (chạy trong tab đã đăng nhập) và đồng bộ vào kho tri thức chatbot Markee.",
+  "permissions": ["storage", "scripting", "tabs"],
+  "host_permissions": [
+    "https://shopee.vn/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "https://*.markeeai.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://shopee.vn/*"],
+      "js": ["interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

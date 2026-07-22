@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageCircle, Send, Users2 } from "lucide-react";
+import { MessageCircle, Send, ShoppingBag, Users2 } from "lucide-react";
 
 const links = [
   {
@@ -19,6 +19,12 @@ const links = [
     icon: Send,
     title: "Chuyển tiếp tin nhắn tự động",
     description: "Cấu hình nhóm chính → nhóm đích để tự động forward."
+  },
+  {
+    href: "/zalo/shopee-shops",
+    icon: ShoppingBag,
+    title: "Kho tri thức sản phẩm Shopee",
+    description: "Thêm shop Shopee để crawl sản phẩm — nguồn dữ liệu cho chatbot tư vấn."
   }
 ];
 

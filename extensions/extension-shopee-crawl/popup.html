@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Markee Shopee Crawler</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="brand">
+    <span class="dot"></span>
+    <strong>Shopee Product Crawler</strong>
+    <span class="tag">Markee</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title"><span class="num">1</span> Cấu hình server</div>
+
+    <label for="backendUrl">Backend URL</label>
+    <input id="backendUrl" placeholder="http://localhost:3000" />
+
+    <label for="apiKey">API Key (SHOPEE_SYNC_API_KEY)</label>
+    <input id="apiKey" placeholder="Để trống nếu server chưa cấu hình key" />
+
+    <label for="accountId">Account Zalo áp dụng (tuỳ chọn)</label>
+    <input id="accountId" placeholder="vd: shop-owner" />
+
+    <button id="saveConfigBtn" type="button" class="secondary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+      Lưu cấu hình
+    </button>
+    <div id="configStatus" class="status-text"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title"><span class="num">2</span> Crawl shop (chạy trong tab thật)</div>
+
+    <label for="shopUrl">Link / username shop</label>
+    <input id="shopUrl" placeholder="https://shopee.vn/beplain.vn hoặc beplain.vn" />
+
+    <button id="crawlBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      Bắt đầu crawl
+    </button>
+    <div id="crawlStatus" class="status-text"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title"><span class="num">3</span> Bổ sung mô tả chi tiết (tuỳ chọn)</div>
+    <div class="target-line">Chậm hơn — mở lại từng trang sản phẩm để lấy mô tả đầy đủ. Chỉ áp dụng cho shop vừa crawl ở bước 2.</div>
+
+    <button id="enrichBtn" type="button" class="secondary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+      Lấy mô tả chi tiết
+    </button>
+    <div id="enrichStatus" class="status-text"></div>
+  </div>
+
+  <div class="footer">Markee Shopee Crawler v1.0</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
