@@ -144,6 +144,94 @@ async function getSettings() {
   };
 }
 
+// ─── IMEI per-account cache ─────────────────────────────────────────
+// BUG (đã root-cause, xem MULTI-ACCOUNT-FORWARD-PLAN.md mục 0): trước đây
+// imei được cache vào 1 key GLOBAL DUY NHẤT `imei` trong chrome.storage.local,
+// dùng chung cho MỌI account_id. Khi 1 browser dùng để import nhiều account
+// Zalo khác nhau (vd "customer" rồi "shop-owner"), giá trị fallback này bị
+// lẫn giữa các account — account sau có thể vô tình gửi lên backend đúng
+// imei của account trước đó thay vì giá trị captured cho chính nó, khiến
+// backend đăng ký 2 accountId với cùng device-id lên Zalo server → Zalo kick
+// 1 trong 2 (Overlimit connection).
+//
+// Fix: key theo account_id — mỗi account chỉ đọc/ghi đúng slot của mình,
+// không bao giờ fallback sang imei của account khác. Lưu ý: đây chỉ chặn
+// được lỗi "dùng NHẦM cache cũ của account khác" — nếu bạn dùng ĐÚNG 1
+// browser để đăng nhập 2 tài khoản Zalo THẬT khác nhau, z_uuid mà Zalo Web
+// sinh ra vẫn là 1 giá trị CỐ ĐỊNH theo origin trình duyệt (không đổi theo
+// tài khoản), nên 2 account đó vẫn sẽ bị Zalo coi là cùng 1 thiết bị dù
+// code có sửa thế nào — cần tách browser profile/incognito riêng cho mỗi
+// account, hoặc dùng QR login (sessionManager.startQrLogin, không phụ thuộc
+// z_uuid) cho ít nhất 1 trong 2 account.
+async function getStoredImei(accountId) {
+  if (!accountId) return "";
+  try {
+    const { imeiByAccount } = await chrome.storage.local.get(["imeiByAccount"]);
+    return (imeiByAccount && imeiByAccount[accountId]) || "";
+  } catch {
+    return "";
+  }
+}
+
+async function setStoredImei(accountId, imei) {
+  if (!accountId || !imei) return;
+  try {
+    const { imeiByAccount } = await chrome.storage.local.get(["imeiByAccount"]);
+    await chrome.storage.local.set({
+      imeiByAccount: { ...(imeiByAccount || {}), [accountId]: imei },
+    });
+  } catch (e) {
+    logErr("setStoredImei failed:", e && e.message);
+  }
+}
+
+// Đợi tab load xong (status "complete") trước khi executeScript — script
+// chạy giữa lúc tab đang navigate có thể fail hoặc chạy nhầm vào trang cũ.
+async function waitForTabComplete(tabId, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.status === "complete") return true;
+    } catch {
+      return false; // tab đã đóng
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+// Xoá `z_uuid` (device-id Zalo Web tự sinh, lưu theo origin — KHÔNG theo tài
+// khoản) rồi reload tab để Zalo Web sinh lại 1 giá trị MỚI trước khi user
+// quét QR cho account tiếp theo. Đây là cách cho phép nhiều tài khoản Zalo
+// thật cùng dùng 1 Chrome profile mà không bị Zalo coi là cùng 1 thiết bị
+// (tránh kick lẫn nhau / Overlimit connection) — KHÔNG cần profile/incognito
+// riêng, KHÔNG cần QR login trong app.
+//
+// Chỉ nên gọi khi import 1 account_id CHƯA từng có imei lưu trên profile này
+// (getStoredImei rỗng) — account ĐÃ từng kết nối trước đó nên giữ nguyên
+// device cũ (Zalo đã "quen" thiết bị đó cho account này, đổi liên tục dễ bị
+// Zalo nghi ngờ/flag).
+async function resetZaloDeviceId(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        try {
+          window.localStorage.removeItem("z_uuid");
+        } catch (_) {
+          /* ignore */
+        }
+      },
+    });
+    await chrome.tabs.reload(tabId);
+    await waitForTabComplete(tabId);
+    log(`resetZaloDeviceId: cleared z_uuid + reloaded tab ${tabId}`);
+  } catch (e) {
+    logErr("resetZaloDeviceId failed:", e && e.message);
+  }
+}
+
 function broadcastState(extra = {}) {
   const msg = { type: 'STATE_UPDATE', loginStatus, qrDataUrl: lastQrDataUrl, zaloTabId, ...extra };
   chrome.runtime.sendMessage(msg).catch(() => {});
@@ -442,7 +530,11 @@ function startPolling() {
       });
       if (response) {
         if (response.imei) {
-          chrome.storage.local.set({ imei: response.imei }).catch(() => {});
+          // Legacy single-account flow — key theo userId đã cấu hình
+          // (SAVE_SETTINGS), không phải 1 key global dùng chung mọi account.
+          getSettings()
+            .then(({ userId }) => setStoredImei(userId, response.imei))
+            .catch(() => {});
         }
         await handleContentResponse(response);
       }
@@ -501,6 +593,11 @@ async function handleContentResponse(response) {
         const { apiKey } = await getSettings();
         const cookiesPayload = cookiesToZcaFormat(cookies);
         const url = `${sessionData.bridgeUrl}/api/all-platform/zalo/auth/import-session`;
+        // Ưu tiên giá trị vừa capture được (response.imei); nếu content script
+        // không lấy được (race), fallback đúng cache của account_id này —
+        // không phải key global (xem getStoredImei).
+        const resumedImei = response.imei || (await getStoredImei(sessionData.accountId));
+        if (response.imei) setStoredImei(sessionData.accountId, response.imei).catch(() => {});
         const body = {
           account_id: sessionData.accountId,
           chatwoot_account_id: sessionData.chatwootAccountId || "",
@@ -508,7 +605,7 @@ async function handleContentResponse(response) {
           cookies: cookiesPayload,
           source: "chatwoot-extension-resumed",
           user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
-          imei: response.imei || "",
+          imei: resumedImei,
         };
         log(`handleContentResponse: POST resumed import to ${url}`);
         const resp = await fetch(url, {
@@ -698,9 +795,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               ...(c.expirationDate ? { expires: new Date(c.expirationDate * 1000).toISOString() } : {}),
             }));
             const userAgent = (typeof navigator !== "undefined" && navigator.userAgent) || "";
-            // IMEI: thử lấy từ storage.local nếu đã save, fallback rỗng
-            const local = await chrome.storage.local.get(["imei"]);
-            const imei = local.imei || "";
+            // IMEI: đọc theo userId đã cấu hình (không phải key global dùng
+            // chung mọi account — xem getStoredImei). Endpoint này chỉ dùng
+            // để ping/checkLogin, không phải luồng import chính.
+            const { userId } = await getSettings();
+            const imei = await getStoredImei(userId);
             sendResponse({
               cookies: zcaFormat,
               keys: zcaFormat.map((c) => c.key),
@@ -786,6 +885,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             loginStatus = "waiting_scan";
             await chrome.storage.session.set({ zaloTabId, isExtInitiated });
             broadcastState({ message: "Zalo Web mở — đăng nhập nếu cần..." });
+
+            // account_id này CHƯA từng import trên profile hiện tại → reset
+            // device-id (z_uuid) trước khi quét QR, để Zalo không đăng ký
+            // account mới này lên CÙNG device-id với 1 account khác đã dùng
+            // trước đó trên profile này (nguyên nhân kick lẫn nhau/Overlimit).
+            // Account đã từng import rồi (đang reconnect/login lại) thì giữ
+            // nguyên z_uuid hiện có — không reset.
+            const hasExistingImei = await getStoredImei(accountId);
+            if (!hasExistingImei) {
+              await waitForTabComplete(zaloTabId);
+              await resetZaloDeviceId(zaloTabId);
+              broadcastState({ message: "Đã reset device-id cho tài khoản mới — đăng nhập QR bình thường..." });
+            }
           } catch (e) {
             importZaloInProgress = false;
             stopKeepAlive();
@@ -810,7 +922,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   if (resp && resp.loginStatus === "confirmed") {
                     if (resp.imei) {
                       imei = resp.imei;
-                      chrome.storage.local.set({ imei: resp.imei }).catch(() => {});
+                      setStoredImei(accountId, resp.imei).catch(() => {});
                     }
                     clearInterval(checkId);
                     resolve();
@@ -846,8 +958,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const settings = await getSettings();
             const apiKey = importApiKey || settings.apiKey || "";
             if (!imei) {
-              const local = await chrome.storage.local.get(["imei"]);
-              imei = local.imei || "";
+              // Fallback theo ĐÚNG account_id đang import — KHÔNG đọc key
+              // global (bug cũ khiến account này vô tình dùng nhầm imei của
+              // 1 account khác từng import trước đó trên cùng máy).
+              imei = await getStoredImei(accountId);
             }
             const url = `${bridgeUrl}/api/all-platform/zalo/auth/import-session`;
             const body = {
@@ -923,8 +1037,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try {
             const cookies = await waitForCookies();
             const { backendUrl, apiKey } = await getSettings();
-            const local = await chrome.storage.local.get(["imei"]);
-            const imei = local.imei || "";
+            // Đọc theo đúng account_id đang import (không phải key global —
+            // xem getStoredImei), tránh dùng nhầm imei của account khác.
+            const imei = await getStoredImei(params.account_id);
             const cookiesPayload = cookiesToZcaFormat(cookies); // ARRAY (not stringified)
             const url = `${backendUrl}/api/all-platform/zalo/auth/import-session`;
             const body = {
