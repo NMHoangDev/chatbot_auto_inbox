@@ -79,11 +79,19 @@ const MAX_PER_MIN = Number(process.env.ZALO_FORWARD_MAX_PER_MIN || 60);
 // trong 1 lần gửi thực tế, mà không làm ảnh đơn lẻ (không thuộc album nào)
 // bị trễ đáng kể khi forward.
 const IMAGE_BATCH_MS = Number(process.env.ZALO_FORWARD_IMAGE_BATCH_MS || 1200);
+// Cửa sổ tự tắt sau khi bật forward bằng lệnh chat "/fwon" (xem
+// handleForwardToggleCommand) — phòng trường hợp quên gõ "/fwoff". KHÔNG áp
+// dụng cho rule bật qua dashboard (auto_off_at luôn NULL ở đó, xem migration
+// 0004_zalo_forward_rules_auto_off.sql).
+const FORWARD_AUTO_OFF_MS = Number(process.env.ZALO_FORWARD_AUTO_OFF_MS || 300000);
 
 const rulesCacheByAccount = new Map(); // accountId -> { fetchedAt, rulesByMaster: Map<threadId, rule[]> }
 const forwardedIds = new Set(); // `${accountId}_${msgId}` — id do chính engine gửi
 const processedSource = new Set(); // `${accountId}:${threadId}:${msgId}` — chống xử lý trùng 1 nguồn
 const rateState = new Map(); // accountId -> { windowStart, count }
+// rule.id -> Timeout — khoá theo rule (KHÔNG theo accountId) vì 1 account có
+// thể có nhiều nhóm chính, mỗi nhóm 1 cửa sổ tự tắt độc lập.
+const autoOffTimers = new Map();
 // Gom ảnh cùng batch — key `${accountId}:${threadId}:${senderUid}`, value
 // { imageUrls, sourceMsgIds, rules, api, timer }. Chỉ sống trong bộ nhớ,
 // không cần persist (mất khi restart bridge là chấp nhận được, ảnh đang dở
@@ -157,11 +165,24 @@ async function loadRulesByMaster(accountId) {
   try {
     const { data, error } = await sb
       .from('v_zalo_forward_rules_active')
-      .select('rule_id, master_thread_id, target_thread_id')
+      .select('rule_id, master_thread_id, target_thread_id, auto_off_at')
       .eq('account_id', accountId);
     if (!error && Array.isArray(data)) {
+      // Backstop cho "/fwon" tự tắt (xem handleForwardToggleCommand): nếu
+      // bridge restart giữa cửa sổ 5 phút, in-memory timer bị mất — bù lại
+      // bằng cách reap ngay tại đây (chạy mỗi khi có message trigger load lại
+      // rules cho account này) bất kỳ rule nào đã quá auto_off_at. Không cần
+      // setInterval riêng: rule "quá hạn nhưng chưa bị phát hiện" không forward
+      // gì cả vì chỉ có tác dụng khi có message đến — vài giây trễ là chấp
+      // nhận được ở quy mô demo này.
+      const nowIso = new Date(now).toISOString();
+      const expiredRuleIds = new Set();
       const byRule = new Map();
       for (const row of data) {
+        if (row.auto_off_at && row.auto_off_at <= nowIso) {
+          expiredRuleIds.add(row.rule_id);
+          continue;
+        }
         if (!byRule.has(row.rule_id)) {
           byRule.set(row.rule_id, {
             rule_id: row.rule_id,
@@ -175,6 +196,27 @@ async function loadRulesByMaster(accountId) {
         const list = rulesByMaster.get(rule.master_thread_id) || [];
         list.push(rule);
         rulesByMaster.set(rule.master_thread_id, list);
+      }
+      if (expiredRuleIds.size > 0) {
+        const ids = [...expiredRuleIds];
+        sb.from('zalo_forward_rules')
+          .update({ is_enabled: false, auto_off_at: null })
+          .in('id', ids)
+          .eq('is_enabled', true)
+          .then(({ error: reapErr }) => {
+            if (reapErr) {
+              logger.error(`[forward] [${accountId}] auto-off backstop reap failed: ${reapErr.message}`);
+            } else {
+              logger.info(`[forward] [${accountId}] auto-off backstop reaped rule(s)=${ids.join(',')}`);
+            }
+          });
+        for (const id of ids) {
+          const t = autoOffTimers.get(id);
+          if (t) {
+            clearTimeout(t);
+            autoOffTimers.delete(id);
+          }
+        }
       }
     } else if (error) {
       logger.warn(`[forward] [${accountId}] load rules err: ${error.message}`);
@@ -508,6 +550,123 @@ async function forwardSticker({ accountId, api, rules, threadId, sourceMsgId, st
   }
 }
 
+// ── Lệnh chat "/fwon" / "/fwoff": bật/tắt forward ngay từ Zalo, không cần app ──
+//
+// Gõ trực tiếp vào nhóm chính (từ chính điện thoại/app Zalo của tài khoản
+// đang đăng nhập bridge — nhờ `selfListen: true`, tin tự gửi cũng được
+// listener nhận lại y hệt tin người khác gửi) để bật/tắt rule forward của
+// nhóm đó mà không cần mở dashboard.
+//
+// An toàn: CHỈ nhận lệnh từ `msg.isSelf === true` — thành viên khác trong
+// nhóm gõ "/fwon"/"/fwoff" sẽ bị bỏ qua hoàn toàn (không ai khác điều khiển
+// được forward ngoài chính chủ tài khoản).
+//
+// Cú pháp chọn "/fwon"/"/fwoff" thay vì "/fw"/"/efw" (đề xuất ban đầu) vì cặp
+// đó chỉ khác nhau đúng 1 ký tự — gõ thiếu chữ "e" của "/efw" sẽ vô tình biến
+// thành "/fw" (bật nhầm thay vì tắt). Không có cách sửa 1 ký tự nào biến
+// "/fwon" thành "/fwoff" hay ngược lại.
+//
+// "/fwon" luôn mở 1 cửa sổ tự tắt sau FORWARD_AUTO_OFF_MS (mặc định 5 phút) —
+// kể cả khi rule trước đó đang bật vĩnh viễn qua dashboard — vì lệnh chat được
+// thiết kế cho use-case "bật tạm để gửi vài tin rồi tắt", không phải để thay
+// thế công tắc bật-mãi-mãi của dashboard.
+async function handleForwardToggleCommand({ accountId, msg, threadId }) {
+  if (!msg?.isSelf) return false;
+  const rawText = msg.data?.content;
+  const text = typeof rawText === 'string' ? rawText.trim().toLowerCase() : '';
+  if (text !== '/fwon' && text !== '/fwoff') return false;
+
+  const sb = getClient();
+  if (!sb) {
+    logger.warn(`[forward] [${accountId}] ${text} thread=${threadId}: không có Supabase client, bỏ qua`);
+    return true;
+  }
+
+  try {
+    const { data: rule, error } = await sb
+      .from('zalo_forward_rules')
+      .select('id, is_enabled')
+      .eq('account_id', accountId)
+      .eq('master_thread_id', threadId)
+      .maybeSingle();
+    if (error) {
+      logger.error(`[forward] [${accountId}] ${text} thread=${threadId}: lookup rule failed: ${error.message}`);
+      return true;
+    }
+    if (!rule) {
+      logger.info(`[forward] [${accountId}] ${text} thread=${threadId}: chưa có rule forward cho nhóm này, bỏ qua`);
+      return true;
+    }
+
+    if (text === '/fwon') {
+      const autoOffAt = new Date(Date.now() + FORWARD_AUTO_OFF_MS).toISOString();
+      const { error: updErr } = await sb
+        .from('zalo_forward_rules')
+        .update({ is_enabled: true, auto_off_at: autoOffAt })
+        .eq('id', rule.id);
+      if (updErr) {
+        logger.error(`[forward] [${accountId}] /fwon rule=${rule.id} update failed: ${updErr.message}`);
+        return true;
+      }
+      const existingTimer = autoOffTimers.get(rule.id);
+      if (existingTimer) clearTimeout(existingTimer);
+      autoOffTimers.set(
+        rule.id,
+        setTimeout(() => autoOffFire(accountId, rule.id), FORWARD_AUTO_OFF_MS)
+      );
+      rulesCacheByAccount.delete(accountId);
+      logger.info(`[forward] [${accountId}] /fwon rule=${rule.id} thread=${threadId} enabled, auto-off in ${FORWARD_AUTO_OFF_MS}ms`);
+    } else {
+      const existingTimer = autoOffTimers.get(rule.id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        autoOffTimers.delete(rule.id);
+      }
+      if (!rule.is_enabled) {
+        logger.info(`[forward] [${accountId}] /fwoff rule=${rule.id} thread=${threadId}: đã tắt sẵn, bỏ qua`);
+        return true;
+      }
+      const { error: updErr } = await sb
+        .from('zalo_forward_rules')
+        .update({ is_enabled: false, auto_off_at: null })
+        .eq('id', rule.id);
+      if (updErr) {
+        logger.error(`[forward] [${accountId}] /fwoff rule=${rule.id} update failed: ${updErr.message}`);
+        return true;
+      }
+      rulesCacheByAccount.delete(accountId);
+      logger.info(`[forward] [${accountId}] /fwoff rule=${rule.id} thread=${threadId} disabled`);
+    }
+  } catch (err) {
+    logger.error(`[forward] [${accountId}] ${text} thread=${threadId} error: ${err.message}`);
+  }
+  return true;
+}
+
+// setTimeout callback khi hết cửa sổ 5 phút mà không có "/fwoff" — điều kiện
+// `.eq('is_enabled', true)` tránh ghi đè vô hại nếu rule đã bị tắt bằng cách
+// khác (dashboard hoặc "/fwoff") trước khi timer này kịp bắn.
+async function autoOffFire(accountId, ruleId) {
+  autoOffTimers.delete(ruleId);
+  const sb = getClient();
+  if (!sb) return;
+  try {
+    const { error } = await sb
+      .from('zalo_forward_rules')
+      .update({ is_enabled: false, auto_off_at: null })
+      .eq('id', ruleId)
+      .eq('is_enabled', true);
+    if (error) {
+      logger.error(`[forward] [${accountId}] auto-off timer rule=${ruleId} update failed: ${error.message}`);
+      return;
+    }
+    rulesCacheByAccount.delete(accountId);
+    logger.info(`[forward] [${accountId}] auto-off timer fired rule=${ruleId}`);
+  } catch (err) {
+    logger.error(`[forward] [${accountId}] auto-off timer rule=${ruleId} error: ${err.message}`);
+  }
+}
+
 /**
  * Entry point — gọi fire-and-forget từ sessionManager listener khi nhận
  * message trong 1 group (isGroupMsg === true), bất kể isSelf.
@@ -531,6 +690,8 @@ export async function handleIncomingGroupMessage({ accountId, api, msg, threadId
     const sourceKey = `${accountId}:${threadId}:${sourceMsgId || msg.data?.ts || ''}`;
     if (processedSource.has(sourceKey)) return;
     markSourceProcessed(sourceKey);
+
+    if (await handleForwardToggleCommand({ accountId, msg, threadId })) return;
 
     const rules = await getRulesForMaster(accountId, threadId);
     if (rules.length === 0) return;
