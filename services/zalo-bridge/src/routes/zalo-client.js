@@ -71,9 +71,15 @@ try {
 } catch (_) {
   /* ignore — best effort, upload sẽ tự fail nếu dir không ghi được */
 }
+// Giới hạn dung lượng mỗi file khi gửi media (ảnh/video/file) qua /send-media.
+// Nâng từ 50MB → 200MB để video mp4 quay điện thoại gửi được dạng video inline
+// trên Zalo (xem handleAttachment video branch trong zca-js). KHÔNG đặt quá cao
+// (vd 1GB) vì zca-js uploadAttachment đọc NGUYÊN file vào RAM để chunk → dễ OOM
+// trên VM. Chỉnh qua env ZALO_MEDIA_MAX_MB nếu cần.
+const MAX_MEDIA_MB = Math.max(1, Number(process.env.ZALO_MEDIA_MAX_MB) || 200);
 const upload = multer({
   dest: UPLOAD_TEMP_DIR,
-  limits: { fileSize: 50 * 1024 * 1024, files: 10 },
+  limits: { fileSize: MAX_MEDIA_MB * 1024 * 1024, files: 10 },
 });
 
 // In-memory cache: thread_id (raw, không prefix) → thread_type ("user" | "group").
@@ -721,8 +727,13 @@ router.post('/all-platform/zalo/conversations/:id/send-media', (req, res, next) 
   // default error handler (trả HTML, frontend hiển thị rác trong toast lỗi).
   upload.array('files', 10)(req, res, (err) => {
     if (err) {
-      logger.warn(`[send-media] multer error: ${err.message}`);
-      return res.status(400).json({ error: `upload_failed: ${err.message}` });
+      const tooBig = err.code === 'LIMIT_FILE_SIZE';
+      logger.warn(`[send-media] multer error: ${err.message} (code=${err.code || 'n/a'})`);
+      return res.status(400).json({
+        error: tooBig
+          ? `file_too_large: file vượt giới hạn ${MAX_MEDIA_MB}MB`
+          : `upload_failed: ${err.message}`,
+      });
     }
     next();
   });
@@ -743,11 +754,26 @@ router.post('/all-platform/zalo/conversations/:id/send-media', (req, res, next) 
       return res.status(400).json({ error: 'files is required (multipart field "files")' });
     }
 
+    // Cảnh báo video KHÔNG phải mp4: zca-js chỉ map .mp4 → fileType "video"
+    // (hiển thị video inline trên Zalo); các đuôi khác (.mov/.avi/...) rơi vào
+    // nhánh "others" → gửi dạng FILE tải về, không phải video. Thu thập để trả
+    // về FE (và log) thay vì âm thầm gửi sai kỳ vọng.
+    const nonMp4Videos = [];
     for (const f of files) {
       const ext = path.extname(f.originalname || '') || '';
       const finalPath = ext ? `${f.path}${ext}` : f.path;
       if (finalPath !== f.path) fs.renameSync(f.path, finalPath);
       renamedPaths.push(finalPath);
+      const isVideoMime = typeof f.mimetype === 'string' && f.mimetype.startsWith('video/');
+      if (isVideoMime && ext.toLowerCase() !== '.mp4') {
+        nonMp4Videos.push(f.originalname || path.basename(finalPath));
+      }
+    }
+    if (nonMp4Videos.length > 0) {
+      logger.warn(
+        `[${ctx.accountId}] [SEND_MEDIA_API] video non-mp4 sẽ gửi dạng FILE (không inline): ` +
+        nonMp4Videos.join(', ')
+      );
     }
 
     const text = String(req.body?.text || '').trim();
@@ -761,10 +787,11 @@ router.post('/all-platform/zalo/conversations/:id/send-media', (req, res, next) 
     const mentions = resolveMentions(text, providedMentions);
 
     // ── LOG: REST send-media được gọi từ frontend ───────────────────────────
+    const extList = renamedPaths.map((p) => path.extname(p).toLowerCase() || '?').join(',');
     logger.info(
       `[${ctx.accountId}] [SEND_MEDIA_API] convId_in_url=${req.params.id} ` +
       `parsed.threadId=${parsed.threadId} finalType=${finalType} ` +
-      `files=${renamedPaths.length} text="${text.slice(0, 80)}"${mentions ? ` [mentions=${mentions.length}]` : ''}`
+      `files=${renamedPaths.length} exts=[${extList}] text="${text.slice(0, 80)}"${mentions ? ` [mentions=${mentions.length}]` : ''}`
     );
 
     try {
@@ -782,6 +809,9 @@ router.post('/all-platform/zalo/conversations/:id/send-media', (req, res, next) 
       ok: true,
       conversation_id: req.params.id,
       files_sent: renamedPaths.length,
+      // FE dùng để cảnh báo: các video này gửi dạng file (không inline) vì
+      // không phải mp4.
+      non_mp4_videos: nonMp4Videos,
       message: 'Sent',
     });
   } catch (err) {

@@ -479,15 +479,28 @@ export const zaloApi = {
     threadType: "user" | "group",
     accountId: string = ZALO_ACCOUNT_ID,
     mentions?: ZaloMention[]
-  ): Promise<{ ok: boolean; files_sent: number; message: string }> {
+  ): Promise<{
+    ok: boolean;
+    files_sent: number;
+    message: string;
+    /**
+     * Video KHÔNG phải mp4 (vd .mov/.avi) — bridge trả về để cảnh báo: các
+     * file này gửi dạng FILE tải về (không hiển thị video inline trên Zalo).
+     * Chỉ mp4 mới lên đúng dạng video native.
+     */
+    non_mp4_videos?: string[];
+  }> {
     const fd = new FormData();
     if (text) fd.append("text", text);
     fd.append("thread_type", threadType);
     if (mentions && mentions.length > 0) fd.append("mentions", JSON.stringify(mentions));
     files.forEach((f) => fd.append("files", f, f.name));
+    // Video mp4 (tới 200MB) upload + chờ Zalo xử lý xong có thể mất khá lâu →
+    // timeout 5 phút (khớp guard phía bridge ZALO_UPLOAD_TIMEOUT_MS mặc định 180s
+    // + margin cho thời gian upload chunk).
     return request(
       `/api/all-platform/zalo/conversations/${encodeURIComponent(conversationId)}/send-media?account_id=${encodeURIComponent(accountId)}`,
-      { method: "POST", formData: fd, timeoutMs: 120_000 }
+      { method: "POST", formData: fd, timeoutMs: 300_000 }
     );
   },
 

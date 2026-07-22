@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, AtSign, Image as ImageIcon, Loader2, MessageCircle, Paperclip, RefreshCw, Send, User, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, AtSign, Image as ImageIcon, Loader2, MessageCircle, Paperclip, RefreshCw, Send, User, Video as VideoIcon, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZaloConversation, ZaloGroupMember, ZaloMention, ZaloMessage } from "@/lib/zalo-api";
 
@@ -296,6 +296,13 @@ export function ZaloChatPanel({
     }
   };
 
+  // Video KHÔNG phải mp4 (vd .mov iPhone, .avi) sẽ được Zalo gửi dạng FILE tải
+  // về, KHÔNG hiển thị video inline. Chỉ mp4 mới lên đúng dạng video native →
+  // cảnh báo để người gửi chủ động đổi định dạng nếu cần.
+  const hasNonMp4Video = pendingFiles.some(
+    (f) => f.type.startsWith("video/") && !/\.mp4$/i.test(f.name)
+  );
+
   if (!conv) {
     return (
       <div className="flex h-full items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -375,26 +382,43 @@ export function ZaloChatPanel({
 
       {/* File previews */}
       {pendingFiles.length > 0 && (
-        <div className="flex shrink-0 flex-wrap gap-2 border-t border-slate-200 bg-slate-50 p-2.5">
-          {pendingFiles.map((f, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs"
-            >
-              {f.type.startsWith("image/") ? (
-                <ImageIcon className="h-3.5 w-3.5 text-blue-500" />
-              ) : (
-                <Paperclip className="h-3.5 w-3.5 text-slate-500" />
-              )}
-              <span className="max-w-[140px] truncate">{f.name}</span>
-              <button
-                onClick={() => setPendingFiles(pendingFiles.filter((_, idx) => idx !== i))}
-                className="ml-1 text-slate-400 hover:text-red-500"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+        <div className="flex shrink-0 flex-col gap-2 border-t border-slate-200 bg-slate-50 p-2.5">
+          <div className="flex flex-wrap gap-2">
+            {pendingFiles.map((f, i) => {
+              const isImage = f.type.startsWith("image/");
+              const isVideo = f.type.startsWith("video/");
+              return (
+                <div
+                  key={i}
+                  className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs"
+                >
+                  {isImage ? (
+                    <ImageIcon className="h-3.5 w-3.5 text-blue-500" />
+                  ) : isVideo ? (
+                    <VideoIcon className="h-3.5 w-3.5 text-purple-500" />
+                  ) : (
+                    <Paperclip className="h-3.5 w-3.5 text-slate-500" />
+                  )}
+                  <span className="max-w-[140px] truncate">{f.name}</span>
+                  <button
+                    onClick={() => setPendingFiles(pendingFiles.filter((_, idx) => idx !== i))}
+                    className="ml-1 text-slate-400 hover:text-red-500"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {hasNonMp4Video && (
+            <div className="flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-700">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Video không phải <b>.mp4</b> sẽ gửi dạng file tải về (không hiển
+                thị video inline trên Zalo). Dùng mp4 để lên đúng dạng video.
+              </span>
             </div>
-          ))}
+          )}
         </div>
       )}
 

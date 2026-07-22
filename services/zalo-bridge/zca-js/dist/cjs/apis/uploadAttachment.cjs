@@ -170,14 +170,28 @@ const uploadAttachmentFactory = utils.apiFactory()((api, ctx, utils$1) => {
                      */
                     const resData = await utils.resolveResponse(ctx, response);
                     if (resData && resData.fileId != "-1" && resData.photoId != "-1")
-                        await new Promise((resolve) => {
+                        await new Promise((resolve, reject) => {
                             if (data.fileType == "video" || data.fileType == "others") {
+                                const fileIdKey = resData.fileId.toString();
+                                // Timeout guard: nếu WS "file_done" không tới, Promise treo vĩnh
+                                // viễn → sendMessage kẹt. Fail rõ ràng thay vì treo.
+                                const timeoutMs = Number(process.env.ZALO_UPLOAD_TIMEOUT_MS) || 180000;
+                                const timer = setTimeout(() => {
+                                    ctx.uploadCallbacks.delete(fileIdKey);
+                                    reject(new ZaloApiError.ZaloApiError(`Upload ${data.fileType} timed out after ${timeoutMs}ms (không nhận được file_done từ Zalo — WS có thể đã rớt)`));
+                                }, timeoutMs);
                                 const uploadCallback = async (wsData) => {
-                                    const result = Object.assign(Object.assign(Object.assign({ fileType: data.fileType }, resData), wsData), { totalSize: data.fileData.totalSize, fileName: data.fileData.fileName, checksum: (await utils.getMd5LargeFileObject(data.source, data.fileData.totalSize)).data });
-                                    results[atmIndex] = result;
-                                    resolve();
+                                    clearTimeout(timer);
+                                    try {
+                                        const result = Object.assign(Object.assign(Object.assign({ fileType: data.fileType }, resData), wsData), { totalSize: data.fileData.totalSize, fileName: data.fileData.fileName, checksum: (await utils.getMd5LargeFileObject(data.source, data.fileData.totalSize)).data });
+                                        results[atmIndex] = result;
+                                        resolve();
+                                    }
+                                    catch (err) {
+                                        reject(err instanceof ZaloApiError.ZaloApiError ? err : new ZaloApiError.ZaloApiError(`Upload ${data.fileType} post-processing failed: ${err instanceof Error ? err.message : String(err)}`));
+                                    }
                                 };
-                                ctx.uploadCallbacks.set(resData.fileId.toString(), uploadCallback);
+                                ctx.uploadCallbacks.set(fileIdKey, uploadCallback);
                             }
                             if (data.fileType == "image") {
                                 const result = {
